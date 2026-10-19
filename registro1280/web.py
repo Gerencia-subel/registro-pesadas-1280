@@ -25,7 +25,7 @@ from .reloj import ahora
 INTENTOS_MAXIMOS = 5
 BLOQUEO_SEGUNDOS = 300
 LATIDO_MAXIMO = 200
-TAMANOS = (50, 100, 500, 1000)
+TAMANOS = (5, 25, 50, 100, 500, 1000)
 
 
 class Intentos:
@@ -88,7 +88,7 @@ def _hora_config(texto):
 
 
 def _correo_json(c):
-    tramo = correo.rango(c["desde"], c["hasta"]) if c["desde"] and c["hasta"] else "Prueba (sin tramo)"
+    tramo = correo.rango(c["desde"], c["hasta"]) if c["desde"] and c["hasta"] else "—"
     return {"nro": c["nro"], "enviado_en": formato.fecha_segundos(c["enviado_en"]), "tipo": c["tipo"],
             "tramo": tramo, "pesadas": c["pesadas"], "resultado": c["resultado"],
             "archivo": c["archivo"] or "", "detalle": c["detalle"] or ""}

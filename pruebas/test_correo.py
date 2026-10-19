@@ -651,6 +651,8 @@ class ComandoCorreo(unittest.TestCase):
                 correr(comandos.correo, "probar", "otra@empresa.com")
             self.assertEqual(smtp.mensajes[1]["para"], ["otra@empresa.com"])
             self.assertEqual([c["tipo"] for c in basedatos.correos(con, 5)], ["prueba", "prueba"])
+            prueba = basedatos.correos(con, 1)[0]
+            self.assertTrue(prueba["desde"] and prueba["hasta"] and prueba["desde"] <= prueba["hasta"])
             con.close()
         finally:
             smtp.cerrar()

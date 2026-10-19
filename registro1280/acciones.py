@@ -307,7 +307,11 @@ def correo_probar(con, destino="", leer=None, enviar=None, leer_cuenta=None, rel
         error = str(e)
     detalle = error or "Prueba %s; %s. %s" % (destinos, resumen, no_aceptados)
     try:
+        # El tramo de una prueba es el de las pesadas de muestra que lleva (de la primera a la última).
+        desde = min(p["FechaI"] for p in muestra) if muestra else None
+        hasta = max(p["FechaF"] for p in muestra) if muestra else None
         basedatos.registrar_correo(con, enviado_en=reloj(), tipo="prueba", pesadas=len(muestra),
+                                   desde=desde, hasta=hasta,
                                    resultado="ERROR" if error else "OK", para=", ".join(para),
                                    copia=", ".join(copia), archivo=archivo, detalle=detalle.strip())
     except ErrorBase:

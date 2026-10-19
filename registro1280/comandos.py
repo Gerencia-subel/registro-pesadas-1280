@@ -256,7 +256,7 @@ def _correo_estado(con):
     print("Últimos correos:")
     print("%-6s %-19s %-6s %-29s %8s %-6s  %s" % ("N°", "Enviado", "Tipo", "Tramo", "Pesadas", "Result", "Detalle"))
     for c in historial:
-        tramo = correo_gmail.rango(c["desde"], c["hasta"]) if c["desde"] and c["hasta"] else "(prueba, sin tramo)"
+        tramo = correo_gmail.rango(c["desde"], c["hasta"]) if c["desde"] and c["hasta"] else "-"
         print("%-6s %-19s %-6s %-29s %8s %-6s  %s" % (
             c["nro"], formato.fecha_segundos(c["enviado_en"]), c["tipo"], tramo, c["pesadas"], c["resultado"],
             c["detalle"] or ""))
