@@ -239,9 +239,9 @@ def crear_app(ajustes, conectar=basedatos.conectar):
             id_texto = (request.args.get("id") or "").strip()
             id_ctrl = int(id_texto) if id_texto else None
             pagina = max(1, int(request.args.get("pagina") or 1))
-            por_pagina = int(request.args.get("por_pagina") or 100)
+            por_pagina = int(request.args.get("por_pagina") or 5)
             if por_pagina not in TAMANOS:
-                por_pagina = 100
+                por_pagina = 5
         except ValueError as e:
             mensaje = str(e) if str(e).startswith("Fecha") else "El ID debe ser un número."
             return jsonify({"ok": False, "error": mensaje}), 400

@@ -175,7 +175,7 @@ $("filtros").addEventListener("submit", (ev) => {
 });
 $("limpiar").addEventListener("click", () => {
   for (const nombre of ["desde", "hasta", "producto", "id"]) $(nombre).value = "";
-  $("por_pagina").value = "100";
+  $("por_pagina").value = "5";
   leerFiltros();
   pagina = 1;
   cargarPesadas();

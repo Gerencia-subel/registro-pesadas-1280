@@ -59,7 +59,7 @@
     <div class="campo"><label for="id">ID</label><input id="id" name="id" inputmode="numeric" pattern="[0-9]*" maxlength="10"></div>
     <div class="campo"><label for="por_pagina">Filas por página</label>
       <select id="por_pagina" name="por_pagina">
-        {% for t in tamanos %}<option value="{{ t }}"{% if t == 100 %} selected{% endif %}>{{ t }}</option>{% endfor %}
+        {% for t in tamanos %}<option value="{{ t }}"{% if t == 5 %} selected{% endif %}>{{ t }}</option>{% endfor %}
       </select>
     </div>
     <div class="botones">
