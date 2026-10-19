@@ -252,7 +252,6 @@ class Tramos(unittest.TestCase):
     def test_cada_correo_lleva_solo_su_tramo(self):
         salida = self.activar(5)
         self.assertIn("Primer envío a las 09:15 con las pesadas desde las 09:12", salida)
-        self.assertIn("(200 pesadas) no se envía", salida)
         self.hasta(9, 13)
         primeras = self.pesar(3)
         self.hasta(9, 14, 59)
@@ -402,7 +401,6 @@ class Tramos(unittest.TestCase):
         self.smtp.modo = "normal"
         self.hasta(9, 18)
         salida = self.activar(5)
-        self.assertIn("Además van en el primer correo 2 pesadas", salida)
         self.hasta(9, 20)
         self.assertEqual(asunto(self.smtp.mensajes[0]["mensaje"]), "Pesadas 19/10/2026 09:18 - 09:20 - 2 pesadas")
         self.assertEqual(sorted(self.ids_enviados()), sorted(int(p.split("|")[0]) for p in a))
@@ -596,7 +594,6 @@ class ComandoCorreo(unittest.TestCase):
         codigo, salida, _ = correr(comandos.correo, "5")
         self.assertEqual(codigo, 0)
         self.assertIn("Correo activado: cada 5 minutos", salida)
-        self.assertIn("288 correos al día (576 envíos contando para y copia)", salida)
         codigo, salida, _ = correr(comandos.correo)
         self.assertIn("Correo: activo, cada 5 minutos", salida)
         self.assertIn("Copia: subelrobotin@gmail.com", salida)

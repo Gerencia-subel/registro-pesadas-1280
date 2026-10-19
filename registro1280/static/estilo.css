@@ -83,7 +83,7 @@ button:disabled { opacity: .45; cursor: default; }
 .enlace-config { color: inherit; text-decoration: none; border-bottom: 1px dashed var(--pantalla-texto); }
 
 /* ---------------------------------------------------------------- configuración */
-main.config { padding: 0 24px 28px; }
+main.config { padding: 24px 24px 28px; }
 .config {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
@@ -246,7 +246,7 @@ td.largo { white-space: normal; min-width: 260px; }
 }
 @media (max-width: 700px) {
   .listas { grid-template-columns: minmax(0, 1fr); }
-  main.config { padding: 0 16px 24px; }
+  main.config { padding: 16px 16px 24px; }
 }
 @media (max-width: 1050px) {
   .pantalla { grid-template-columns: 1fr 1fr; }

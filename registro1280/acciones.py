@@ -151,11 +151,9 @@ def correo_activar(con, minutos, reloj=ahora, leer=None, dormir=None):
         if minutos == anterior:
             return "El correo ya está activo cada %d minuto%s. Próximo envío: %s." % (minutos, plural, _hora(proximo))
         despues = proximo + timedelta(minutes=minutos) if proximo else None
-        lineas = ["Intervalo cambiado a %d minuto%s. El próximo correo sale a las %s, como estaba programado; "
-                  "desde ahí se cuentan los %d minuto%s: el siguiente a las %s."
-                  % (minutos, plural, _hora(proximo), minutos, plural, _hora(despues))]
-        aviso = aviso_limite_gmail(cfg, minutos)
-        return "\n".join(lineas + ([aviso] if aviso else []))
+        return ("Intervalo cambiado a %d minuto%s. El próximo correo sale a las %s, como estaba programado; "
+                "desde ahí se cuentan los %d minuto%s: el siguiente a las %s."
+                % (minutos, plural, _hora(proximo), minutos, plural, _hora(despues)))
     extra = {"dormir": dormir} if dormir else {}
     try:
         guardar_ahora(con, "manual", reintentos=1, reloj=reloj, leer=leer, **extra)
@@ -164,26 +162,13 @@ def correo_activar(con, minutos, reloj=ahora, leer=None, dormir=None):
                           "Revisar con: controlador probar  y volver a intentar." % e)
     # Lo guardado antes de activar (o mientras estuvo detenido) no se envía. Lo que había quedado
     # pendiente mientras estaba activo (por ejemplo, un envío que falló) sí se envía.
-    anteriores = basedatos.marcar_sin_enviar(con, leer_fecha(cfg.get("correo_detenido")))
-    pendientes = basedatos.contar_pendientes(con)
+    basedatos.marcar_sin_enviar(con, leer_fecha(cfg.get("correo_detenido")))
     momento = reloj()
     proximo = siguiente_envio(momento, minutos)
     basedatos.guardar_config(con, correo_minutos=str(minutos), correo_desde=texto_fecha(momento),
                              correo_proximo=texto_fecha(proximo), correo_detenido="", correo_activo="1")
-    lineas = ["Correo activado: cada %d minuto%s. Primer envío a las %s con las pesadas desde las %s."
-              % (minutos, plural, _hora(proximo), _hora(momento)),
-              "Cada correo lleva solo las pesadas nuevas de su tramo; ninguna se envía dos veces.",
-              "Lo que ya estaba guardado (%s pesadas) no se envía." % formato.numero(anteriores)]
-    if pendientes:
-        lineas.append("Además van en el primer correo %s pesadas que habían quedado sin enviar antes de "
-                      "detenerlo." % formato.numero(pendientes))
-    aviso = aviso_limite_gmail(cfg, minutos)
-    if aviso:
-        lineas.append(aviso)
-    ok, texto = estado_servicio(basedatos.config(con), "correo_latido", "del correo", reloj=reloj)
-    if not ok:
-        lineas.append("ATENCIÓN: %s. Revisar: sudo systemctl status registro1280-correo" % texto)
-    return "\n".join(lineas)
+    return ("Correo activado: cada %d minuto%s. Primer envío a las %s con las pesadas desde las %s."
+            % (minutos, plural, _hora(proximo), _hora(momento)))
 
 
 def _hora(momento):
