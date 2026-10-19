@@ -70,12 +70,15 @@ instalar_version() {   # $1 = commit
 # Al volver a una versión anterior al envío por correo (1.1), su instalador no conoce el
 # servicio del correo: se detiene y se quita aquí. La cuenta de Gmail (correo.ini) se conserva.
 quitar_lo_que_no_tiene() {   # $1 = carpeta de la versión instalada
-  if [ ! -f "$1/registro1280-correo.service" ] && [ -f /etc/systemd/system/registro1280-correo.service ]; then
-    systemctl disable --now registro1280-correo >/dev/null 2>&1 || true
-    rm -f /etc/systemd/system/registro1280-correo.service
-    grep -q "Registro de pesadas 1280" /usr/local/bin/correo 2>/dev/null && rm -f /usr/local/bin/correo
-    systemctl daemon-reload
-  fi
+  local nombre
+  for nombre in correo comunicacion; do
+    if [ ! -f "$1/registro1280-$nombre.service" ] && [ -f "/etc/systemd/system/registro1280-$nombre.service" ]; then
+      systemctl disable --now "registro1280-$nombre" >/dev/null 2>&1 || true
+      rm -f "/etc/systemd/system/registro1280-$nombre.service"
+      grep -q "Registro de pesadas 1280" "/usr/local/bin/$nombre" 2>/dev/null && rm -f "/usr/local/bin/$nombre"
+      systemctl daemon-reload
+    fi
+  done
 }
 
 accion="${1:-}"

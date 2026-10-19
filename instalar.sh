@@ -47,7 +47,7 @@ fi
 
 echo "2/7 Instalando MariaDB (MySQL) y librerías (necesita internet, tarda unos minutos)..."
 if ! apt-get update -qq >/dev/null 2>&1 || ! DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-     mariadb-server python3-flask python3-waitress python3-mysqldb >/dev/null 2>&1; then
+     mariadb-server python3-flask python3-waitress python3-mysqldb iputils-ping >/dev/null 2>&1; then
   echo "No se pudieron instalar los paquetes. Revisar que la Raspberry tenga internet y volver a intentar."
   exit 1
 fi
@@ -67,7 +67,7 @@ if [ "$ORIGEN" != "$DESTINO" ]; then
   # Se copia a un archivo nuevo y se renombra: si "actualizar" está corriendo desde
   # /opt/registro1280/actualizar.sh, no se le cambia el archivo mientras bash lo lee.
   for f in LEEME.txt instalar.sh desinstalar.sh actualizar.sh registro1280-bucle.service \
-           registro1280-web.service registro1280-correo.service; do
+           registro1280-web.service registro1280-correo.service registro1280-comunicacion.service; do
     cp "$ORIGEN/$f" "$DESTINO/.$f.nuevo"
     mv -f "$DESTINO/.$f.nuevo" "$DESTINO/$f"
   done
@@ -111,7 +111,7 @@ fi
 mariadb -e "FLUSH PRIVILEGES"
 
 echo "6/7 Creando los comandos de la terminal..."
-for c in mostrar guardar visualizar bucle correo controlador cambiar-clave vaciar-base; do
+for c in mostrar guardar visualizar bucle correo comunicacion controlador cambiar-clave vaciar-base; do
   cat > "/usr/local/bin/$c" <<EOF
 #!/bin/sh
 # Registro de pesadas 1280: comando $c
@@ -145,15 +145,15 @@ fi
 if [ -d "$ORIGEN/.git" ] && command -v git >/dev/null; then
   git -C "$ORIGEN" rev-parse HEAD > "$ETC/version_instalada" 2>/dev/null || true
 fi
-cp "$DESTINO/registro1280-bucle.service" "$DESTINO/registro1280-web.service" "$DESTINO/registro1280-correo.service" \
-   /etc/systemd/system/
+SERVICIOS="registro1280-bucle registro1280-web registro1280-correo registro1280-comunicacion"
+for s in $SERVICIOS; do cp "$DESTINO/$s.service" /etc/systemd/system/; done
 systemctl daemon-reload
-systemctl enable registro1280-bucle registro1280-web registro1280-correo >/dev/null 2>&1
-systemctl restart registro1280-bucle registro1280-web registro1280-correo
+systemctl enable $SERVICIOS >/dev/null 2>&1
+systemctl restart $SERVICIOS
 sleep 4
 
 FALLA=0
-for s in registro1280-bucle registro1280-web registro1280-correo; do
+for s in $SERVICIOS; do
   if ! systemctl is-active --quiet "$s"; then
     echo
     echo "El servicio $s no arrancó. Detalle:"

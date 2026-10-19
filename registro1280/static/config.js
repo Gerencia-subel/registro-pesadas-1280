@@ -147,7 +147,19 @@ $("ver-clave").addEventListener("click", () => {
   $("ver-clave").setAttribute("aria-pressed", ver ? "true" : "false");
 });
 
+// ---------------------------------------------------------------- estado de comunicación
+async function cargarComunicacion() {
+  const r = await pedir("/api/comunicacion");
+  if (!r.ok) return;
+  const el = $("com-estado");
+  texto(el, r.estado);
+  el.title = r.momento ? "Última revisión: " + r.momento : "";
+  el.className = "estado " + (r.estado === "Activo" ? "si" : (r.estado === "Falla de comunicación" ? "falla" : "no"));
+  poner("com-segundos", r.segundos);
+}
+
 function zona(tipo) {
+  if (tipo === "comunicacion") return $("res-comunicacion");
   if (tipo.startsWith("correo")) return $("res-correo");
   if (tipo === "bucle" || tipo === "guardar") return $("res-bucle");
   return $("res-controlador");
@@ -186,6 +198,7 @@ async function enviar(tipo, cuerpo) {
     ocupado = false;
     document.querySelectorAll("main.config button").forEach((b) => { b.disabled = false; });
     cargar();
+    cargarComunicacion();
   }
 }
 
@@ -216,4 +229,6 @@ document.querySelectorAll("button[data-tipo]").forEach((b) => {
 
 cargar();
 cargarClave();
+cargarComunicacion();
+setInterval(cargarComunicacion, 3000);
 setInterval(() => { if (!ocupado) cargar(); }, 15000);

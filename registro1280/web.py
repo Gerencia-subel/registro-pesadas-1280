@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash
 
-from . import VERSION, acciones, basedatos, correo, formato
+from . import VERSION, acciones, basedatos, comunicacion, correo, formato
 from .basedatos import ErrorBase
 from .horario import leer_fecha, minutos_config
 from .reloj import ahora
@@ -322,6 +322,16 @@ def crear_app(ajustes, conectar=basedatos.conectar):
         def hacer(con):
             nro = basedatos.crear_pedido(con, tipo, datos, ahora(), origen_del_pedido())
             return jsonify({"ok": True, "nro": nro})
+        return con_base(hacer)
+
+    @app.get("/api/comunicacion")
+    def api_comunicacion():
+        def hacer(con):
+            cfg = basedatos.config(con)
+            e = comunicacion.leer_estado(cfg)
+            return jsonify({"ok": True, "activo": cfg.get("comunicacion_activo") == "1",
+                            "segundos": str(comunicacion.segundos_config(cfg)), "estado": e["estado"],
+                            "momento": e["momento"].strftime("%H:%M:%S") if e["momento"] else ""})
         return con_base(hacer)
 
     @app.get("/api/configuracion/clave")

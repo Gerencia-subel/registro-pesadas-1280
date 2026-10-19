@@ -1,0 +1,28 @@
+[Unit]
+Description=Registro de pesadas 1280 - estado de comunicacion con el controlador (ping)
+After=network-online.target mariadb.service
+Wants=network-online.target mariadb.service
+
+[Service]
+Type=simple
+User=registro1280
+Group=registro1280
+WorkingDirectory=/opt/registro1280
+ExecStart=/usr/bin/python3 -m registro1280 servicio-comunicacion
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+# El estado queda en memoria (/run), no en la base ni en la tarjeta SD.
+RuntimeDirectory=registro1280
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+# ping necesita este permiso (solo para ping; el resto sigue sin privilegios).
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

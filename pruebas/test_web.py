@@ -142,6 +142,12 @@ class Web(unittest.TestCase):
             fila = basedatos.pedidos_pendientes(con)[0]
             self.assertEqual((fila["tipo"], json.loads(fila["datos"])["usuario"]), ("correo_cuenta", "otra@gmail.com"))
             self.assertEqual(self.cliente.get("/api/pedidos/999999").status_code, 404)
+            r = self.cliente.get("/api/comunicacion").get_json()
+            self.assertEqual((r["activo"], r["segundos"], r["estado"]), (True, "5", "Sin dato"))
+            from registro1280 import comunicacion
+            from registro1280.reloj import ahora
+            comunicacion.escribir_estado(comunicacion.FALLA, ahora())
+            self.assertEqual(self.cliente.get("/api/comunicacion").get_json()["estado"], "Falla de comunicación")
             basedatos.guardar_config(con, correo_clave="abcdefghijklmnop")
             self.assertEqual(self.cliente.get("/api/configuracion/clave").get_json()["clave"], "abcdefghijklmnop")
             r = self.cliente.post("/api/pedidos", json={"tipo": "correo_destinatarios", "para": ["a@x.com", " "],

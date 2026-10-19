@@ -123,6 +123,8 @@ INSERT IGNORE INTO configuracion (clave, valor) VALUES
   ('correo_desde', ''),
   ('correo_proximo', ''),
   ('correo_detenido', ''),
+  ('comunicacion_activo', '1'),
+  ('comunicacion_segundos', '5'),
   ('correo_latido', '');
 
 -- Versión 1.3.5: las activaciones del correo anotadas antes con el texto largo quedan solo

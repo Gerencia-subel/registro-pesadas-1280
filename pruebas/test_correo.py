@@ -75,14 +75,14 @@ class Formatos(unittest.TestCase):
 
     def test_textos_del_tramo(self):
         a, b = datetime(2026, 10, 19, 9, 10), datetime(2026, 10, 19, 9, 15)
-        self.assertEqual(correo.asunto_tramo(a, b, 12), "Pesadas 19/10/2026 09:10 - 09:15 - 12 pesadas")
-        self.assertEqual(correo.asunto_tramo(a, b, 1), "Pesadas 19/10/2026 09:10 - 09:15 - 1 pesada")
-        self.assertEqual(correo.asunto_tramo(a, b, 0), "Pesadas 19/10/2026 09:10 - 09:15 - Sin pesadas")
+        self.assertEqual(correo.asunto_tramo(a, b, 12), "Balanza de Coches - PDL 19/10/2026 09:10 - 09:15 - 12 pesadas")
+        self.assertEqual(correo.asunto_tramo(a, b, 1), "Balanza de Coches - PDL 19/10/2026 09:10 - 09:15 - 1 pesada")
+        self.assertEqual(correo.asunto_tramo(a, b, 0), "Balanza de Coches - PDL 19/10/2026 09:10 - 09:15 - Sin pesadas")
         self.assertTrue(correo.asunto_tramo(a, b, 0, True).endswith("Sin pesadas - Controlador sin respuesta"))
-        self.assertEqual(correo.nombre_archivo(a, b), "pesadas_20261019_0910-0915.csv")
+        self.assertEqual(correo.nombre_archivo(a, b), "Balanza de Coches - PDL_20261019_0910-0915.csv")
         c, d = datetime(2026, 10, 19, 23, 55), datetime(2026, 10, 20, 0, 0)
         self.assertEqual(correo.rango(c, d), "19/10/2026 23:55 - 20/10/2026 00:00")
-        self.assertEqual(correo.nombre_archivo(c, d), "pesadas_20261019_2355-20261020_0000.csv")
+        self.assertEqual(correo.nombre_archivo(c, d), "Balanza de Coches - PDL_20261019_2355-20261020_0000.csv")
 
     def test_direcciones(self):
         self.assertEqual(correo.direcciones("ktomasl@alicorp.com.pe, subelrobotin@gmail.com"),
@@ -259,10 +259,10 @@ class Tramos(unittest.TestCase):
         self.hasta(9, 15)
         self.assertEqual(len(self.smtp.mensajes), 1)
         m = self.smtp.mensajes[0]["mensaje"]
-        self.assertEqual(asunto(m), "Pesadas 19/10/2026 09:12 - 09:15 - 3 pesadas")
+        self.assertEqual(asunto(m), "Balanza de Coches - PDL 19/10/2026 09:12 - 09:15 - 3 pesadas")
         self.assertEqual(self.smtp.mensajes[0]["para"], ["ktomasl@alicorp.com.pe", "subelrobotin@gmail.com"])
         nombre, filas = leer_csv(m)
-        self.assertEqual(nombre, "pesadas_20261019_0912-0915.csv")
+        self.assertEqual(nombre, "Balanza de Coches - PDL_20261019_0912-0915.csv")
         self.assertEqual([f[0] for f in filas[1:]], [p.split("|")[0] for p in primeras])
         self.assertEqual(filas[1][3], primeras[0].split("|")[3])       # el peso tal cual (302.95)
         # tramo siguiente: 09:15 - 09:20, solo las nuevas
@@ -270,7 +270,7 @@ class Tramos(unittest.TestCase):
         segundas = self.pesar(2)
         self.hasta(9, 20)
         m = self.smtp.mensajes[1]["mensaje"]
-        self.assertEqual(asunto(m), "Pesadas 19/10/2026 09:15 - 09:20 - 2 pesadas")
+        self.assertEqual(asunto(m), "Balanza de Coches - PDL 19/10/2026 09:15 - 09:20 - 2 pesadas")
         _, filas = leer_csv(m)
         self.assertEqual([f[0] for f in filas[1:]], [p.split("|")[0] for p in segundas])
         # muchos tramos seguidos: ninguna pesada se repite ni se pierde
@@ -291,9 +291,11 @@ class Tramos(unittest.TestCase):
         self.activar(5)
         self.hasta(9, 15)
         m = self.smtp.mensajes[0]["mensaje"]
-        self.assertEqual(asunto(m), "Pesadas 19/10/2026 09:12 - 09:15 - Sin pesadas")
+        self.assertEqual(asunto(m), "Balanza de Coches - PDL 19/10/2026 09:12 - 09:15 - Sin pesadas")
         self.assertEqual(list(m.iter_attachments()), [])
-        self.assertIn("Sin pesadas del 19/10/2026 09:12 - 09:15", m.get_body().get_content())
+        cuerpo = m.get_body().get_content()
+        self.assertIn("Balanza de Coches - PDL del 19/10/2026 09:12 - 09:15: sin pesadas.", cuerpo)
+        self.assertIn("Estado de comunicación: Sin dato", cuerpo)
 
     def test_si_falla_el_envio_van_en_el_siguiente(self):
         self.activar(5)
@@ -310,7 +312,7 @@ class Tramos(unittest.TestCase):
         b = self.pesar(1)
         self.hasta(9, 20)
         m = self.smtp.mensajes[0]["mensaje"]
-        self.assertEqual(asunto(m), "Pesadas 19/10/2026 09:12 - 09:20 - 3 pesadas")
+        self.assertEqual(asunto(m), "Balanza de Coches - PDL 19/10/2026 09:12 - 09:20 - 3 pesadas")
         self.assertEqual(sorted(self.ids_enviados()), sorted(int(p.split("|")[0]) for p in a + b))
 
     def test_controlador_sin_respuesta(self):
@@ -321,7 +323,7 @@ class Tramos(unittest.TestCase):
         self.controlador_caido = True
         self.hasta(9, 15)
         m = self.smtp.mensajes[0]["mensaje"]
-        self.assertEqual(asunto(m), "Pesadas 19/10/2026 09:12 - 09:15 - Sin pesadas - Controlador sin respuesta")
+        self.assertEqual(asunto(m), "Balanza de Coches - PDL 19/10/2026 09:12 - 09:15 - Sin pesadas - Controlador sin respuesta")
         self.assertIn("no se pudo leer el controlador", m.get_body().get_content())
         self.controlador_caido = False
         self.hasta(9, 20)
@@ -337,8 +339,8 @@ class Tramos(unittest.TestCase):
         self.hasta(10, 0)
         self.hasta(10, 5)
         asuntos = [asunto(r["mensaje"]) for r in self.smtp.mensajes]
-        self.assertEqual(asuntos, ["Pesadas 19/10/2026 09:12 - 10:00 - Sin pesadas",
-                                   "Pesadas 19/10/2026 10:00 - 10:05 - Sin pesadas"])
+        self.assertEqual(asuntos, ["Balanza de Coches - PDL 19/10/2026 09:12 - 10:00 - Sin pesadas",
+                                   "Balanza de Coches - PDL 19/10/2026 10:00 - 10:05 - Sin pesadas"])
 
     def test_cambios_de_intervalo_como_los_pidio_el_cliente(self):
         self.reloj.t = datetime(2026, 10, 19, 15, 12, 40)
@@ -357,9 +359,31 @@ class Tramos(unittest.TestCase):
         self.activar(15)                                        # a las 16:14 se cambia a cada 15
         for h, m in ((16, 15), (16, 20), (16, 30)):
             self.hasta(h, m)
-        horas = [asunto(r["mensaje"]).split(" - ")[1] for r in self.smtp.mensajes]
+        horas = [asunto(r["mensaje"]).split(" - ")[2] for r in self.smtp.mensajes]
         self.assertEqual(horas, ["15:15", "15:20", "15:25", "15:35", "15:45", "15:55", "16:05", "16:10", "16:15",
                                  "16:30"])
+
+    def test_correo_lleva_el_ultimo_estado_de_comunicacion(self):
+        from registro1280 import comunicacion
+        self.activar(5)
+        servicio_com = comunicacion.ServicioComunicacion(ping=lambda ip: False, reloj=self.reloj)
+        self.hasta(9, 14, 50)
+        servicio_com.vuelta()
+        self.hasta(9, 14, 59)
+        servicio_com.ping = lambda ip: True                      # a las 9:14:59 vuelve a responder
+        servicio_com.vuelta()
+        self.hasta(9, 15)
+        self.assertIn("Estado de comunicación: Activo (09:14:59)", self.smtp.mensajes[0]["mensaje"].get_body().get_content())
+        servicio_com.ping = lambda ip: False
+        self.hasta(9, 19, 58)
+        servicio_com.vuelta()
+        self.hasta(9, 20)
+        self.assertIn("Estado de comunicación: Falla de comunicación (09:19:58)",
+                      self.smtp.mensajes[1]["mensaje"].get_body().get_content())
+        basedatos.guardar_config(self.con, comunicacion_activo="0")
+        self.hasta(9, 25)
+        self.assertIn("Estado de comunicación: Desactivado", self.smtp.mensajes[2]["mensaje"].get_body().get_content())
+        servicio_com._con.close()
 
     def test_raspberry_apagada_un_rato(self):
         self.activar(5)
@@ -367,10 +391,10 @@ class Tramos(unittest.TestCase):
         a = self.pesar(4)
         self.hasta(11, 37, 20)                                  # vuelve la luz a las 11:37
         self.assertEqual(len(self.smtp.mensajes), 1)
-        self.assertEqual(asunto(self.smtp.mensajes[0]["mensaje"]), "Pesadas 19/10/2026 09:12 - 11:37 - 4 pesadas")
+        self.assertEqual(asunto(self.smtp.mensajes[0]["mensaje"]), "Balanza de Coches - PDL 19/10/2026 09:12 - 11:37 - 4 pesadas")
         self.hasta(11, 40)
         self.assertEqual(asunto(self.smtp.mensajes[1]["mensaje"]),
-                         "Pesadas 19/10/2026 11:37 - 11:40 - Sin pesadas")
+                         "Balanza de Coches - PDL 19/10/2026 11:37 - 11:40 - Sin pesadas")
         self.assertEqual(sorted(self.ids_enviados()), sorted(int(p.split("|")[0]) for p in a))
 
     def test_detenido_no_envia_y_al_reactivar_empieza_de_cero(self):
@@ -402,7 +426,7 @@ class Tramos(unittest.TestCase):
         self.hasta(9, 18)
         salida = self.activar(5)
         self.hasta(9, 20)
-        self.assertEqual(asunto(self.smtp.mensajes[0]["mensaje"]), "Pesadas 19/10/2026 09:18 - 09:20 - 2 pesadas")
+        self.assertEqual(asunto(self.smtp.mensajes[0]["mensaje"]), "Balanza de Coches - PDL 19/10/2026 09:18 - 09:20 - 2 pesadas")
         self.assertEqual(sorted(self.ids_enviados()), sorted(int(p.split("|")[0]) for p in a))
         self.assertEqual(basedatos.contar_pendientes(self.con), 0)
 
@@ -426,7 +450,7 @@ class Tramos(unittest.TestCase):
         self.assertEqual(basedatos.contar_pendientes(self.con), 0)
         self.assertEqual([c["resultado"] for c in basedatos.correos(self.con, 10)], ["OK"])
         self.hasta(9, 20)
-        self.assertEqual(asunto(self.smtp.mensajes[1]["mensaje"]), "Pesadas 19/10/2026 09:15 - 09:20 - Sin pesadas")
+        self.assertEqual(asunto(self.smtp.mensajes[1]["mensaje"]), "Balanza de Coches - PDL 19/10/2026 09:15 - 09:20 - Sin pesadas")
         self.assertEqual(sorted(self.ids_enviados()), sorted(int(p.split("|")[0]) for p in a))
 
     def test_espera_que_se_sincronice_la_hora_al_encender(self):
@@ -553,6 +577,15 @@ class PedidosDeLaWeb(unittest.TestCase):
         self.assertIn("No se guardó la cuenta", texto)
         self.assertFalse(os.path.exists(correo.RUTA))
 
+    def test_estado_de_comunicacion_desde_la_web(self):
+        estado, texto = self.pedir("comunicacion", "10")
+        self.assertEqual(estado, "OK", texto)
+        cfg = basedatos.config(self.con)
+        self.assertEqual((cfg["comunicacion_activo"], cfg["comunicacion_segundos"]), ("1", "10"))
+        self.assertEqual(self.pedir("comunicacion", "0")[0], "ERROR")
+        self.assertEqual(self.pedir("comunicacion", "detener")[0], "OK")
+        self.assertEqual(basedatos.config(self.con)["comunicacion_activo"], "0")
+
     def test_pedido_viejo_no_se_hace(self):
         estado, texto = self.pedir("bucle", "5", hace=1200)
         self.assertEqual(estado, "ERROR")
@@ -640,7 +673,7 @@ class ComandoCorreo(unittest.TestCase):
             self.assertEqual(codigo, 0, error)
             r = smtp.mensajes[0]
             self.assertEqual(r["para"], ["ktomasl@alicorp.com.pe", "subelrobotin@gmail.com"])
-            self.assertEqual(asunto(r["mensaje"]), "Prueba - Registro de pesadas 1280")
+            self.assertEqual(asunto(r["mensaje"]), "Prueba - Registro de Balanza de Coches - PDL")
             _, filas = leer_csv(r["mensaje"])
             self.assertEqual(len(filas), 6)
             self.assertEqual(basedatos.total(con), 0)               # la prueba no guarda nada

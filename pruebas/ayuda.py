@@ -17,6 +17,7 @@ os.environ.setdefault("REGISTRO1280_BASE", "registro1280_prueba")
 # La cuenta de correo de las pruebas va en un archivo temporal: nunca se toca /etc/registro1280/correo.ini.
 _CARPETA_TEMPORAL = tempfile.mkdtemp(prefix="registro1280_pruebas_")
 os.environ["REGISTRO1280_CORREO_INI"] = os.path.join(_CARPETA_TEMPORAL, "correo.ini")
+os.environ["REGISTRO1280_ESTADO"] = os.path.join(_CARPETA_TEMPORAL, "comunicacion.json")
 atexit.register(shutil.rmtree, _CARPETA_TEMPORAL, True)
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if RAIZ not in sys.path:
@@ -45,6 +46,8 @@ def _mariadb(sql):
 def preparar_base():
     """Crea la base de prueba (una vez) y la deja vacía. Si no hay MariaDB o permisos, salta la prueba."""
     global _preparada
+    if os.path.exists(os.environ["REGISTRO1280_ESTADO"]):
+        os.remove(os.environ["REGISTRO1280_ESTADO"])
     if not _preparada:
         with open(os.path.join(RAIZ, "registro1280", "esquema.sql"), encoding="utf-8") as f:
             esquema = f.read().replace("registro1280", BASE)
@@ -58,6 +61,8 @@ def preparar_base():
         atexit.register(lambda: _mariadb("DROP DATABASE IF EXISTS %s;" % BASE))
     r = _mariadb("USE %s; TRUNCATE pesadas; TRUNCATE descargas; TRUNCATE rechazadas; TRUNCATE correos; TRUNCATE pedidos; "
                  "UPDATE configuracion SET valor='0' WHERE clave IN ('bucle_activo','correo_activo'); "
+                 "UPDATE configuracion SET valor='1' WHERE clave='comunicacion_activo'; "
+                 "UPDATE configuracion SET valor='5' WHERE clave='comunicacion_segundos'; "
                  "UPDATE configuracion SET valor='5' WHERE clave IN ('bucle_minutos','correo_minutos'); "
                  "UPDATE configuracion SET valor='' WHERE clave IN ('bucle_cambiado','latido','ultimo_respaldo',"
                  "'correo_para','correo_copia','correo_cuenta','correo_clave','correo_desde','correo_proximo','correo_detenido',"

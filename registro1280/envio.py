@@ -21,7 +21,7 @@ from datetime import timedelta
 
 import MySQLdb
 
-from . import acciones, basedatos, correo
+from . import acciones, basedatos, comunicacion, correo
 from .basedatos import ErrorBase
 from .horario import leer_fecha, minutos_config, siguiente_envio, texto_fecha  # noqa: F401
 from .controlador import ErrorControlador, leer_pesadas
@@ -48,17 +48,19 @@ def reloj_sincronizado():
     return os.path.exists("/run/systemd/timesync/synchronized")
 
 
-def cuerpo_tramo(desde, hasta, n, archivo, aviso=""):
+def cuerpo_tramo(desde, hasta, n, archivo, aviso="", estado_comunicacion=""):
     lineas = []
     if n:
-        lineas.append("Pesadas del %s: %s." % (correo.rango(desde, hasta), correo.cantidad_texto(n)))
+        lineas.append("%s del %s: %s." % (correo.EQUIPO, correo.rango(desde, hasta), correo.cantidad_texto(n)))
         lineas.append("Archivo adjunto: %s (columnas %s)." % (archivo, ", ".join(correo.COLUMNAS_CSV)))
     else:
-        lineas.append("Sin pesadas del %s." % correo.rango(desde, hasta))
+        lineas.append("%s del %s: sin pesadas." % (correo.EQUIPO, correo.rango(desde, hasta)))
+    if estado_comunicacion:
+        lineas.append("Estado de comunicación: %s" % estado_comunicacion)
     if aviso:
         lineas += ["", aviso]
-    lineas += ["", "Correo automático del registro de pesadas del Rice Lake 1280 (Raspberry %s)."
-               % socket.gethostname()]
+    lineas += ["", "Correo automático del registro de %s del Rice Lake 1280 (Raspberry %s)."
+               % (correo.EQUIPO, socket.gethostname())]
     return "\n".join(lineas) + "\n"
 
 
@@ -239,7 +241,8 @@ class ServicioCorreo:
             return self._resultado(con, datos, hasta, None, str(e))
 
         asunto = correo.asunto_tramo(desde, hasta, len(filas), sin_controlador)
-        cuerpo = cuerpo_tramo(desde, hasta, len(filas), archivo, aviso)
+        cuerpo = cuerpo_tramo(desde, hasta, len(filas), archivo, aviso,
+                              comunicacion.texto_estado(comunicacion.leer_estado(cfg, self.reloj)))
         mensaje = correo.armar_mensaje(cuenta, para, copia, asunto, cuerpo,
                                        correo.armar_csv(filas) if filas else None, archivo)
         error, no_aceptados = None, ""

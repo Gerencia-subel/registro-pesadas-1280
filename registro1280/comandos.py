@@ -278,6 +278,28 @@ def _correo_cuenta(argumentos):
     return 0
 
 
+# ------------------------------------------------------------------ comunicacion
+def comunicacion_cmd(argumentos):
+    """comunicacion 5 | comunicacion detener | comunicacion (estado)."""
+    from . import comunicacion as com
+    accion = argumentos[0].lower() if argumentos else "estado"
+    try:
+        con = _con()
+        if accion in ("detener", "desactivar", "parar", "stop"):
+            print(acciones.comunicacion_detener(con))
+            return 0
+        if accion != "estado":
+            print(acciones.comunicacion_activar(con, accion))
+            return 0
+        cfg = basedatos.config(con)
+    except (ErrorBase, acciones.ErrorAccion) as e:
+        return _salir(str(e))
+    activo = cfg.get("comunicacion_activo") == "1"
+    print("Revisión: %s" % ("activa, ping cada %d segundos" % com.segundos_config(cfg) if activo else "desactivada"))
+    print("Estado de comunicación: %s" % com.texto_estado(com.leer_estado(cfg)))
+    return 0
+
+
 # ------------------------------------------------------------------ controlador
 def controlador(argumentos):
     """controlador: ver la IP. controlador IP PUERTO: cambiarla. controlador probar."""
@@ -353,6 +375,7 @@ COMANDOS = {
     "bucle": bucle,
     "correo": correo,
     "controlador": controlador,
+    "comunicacion": comunicacion_cmd,
     "cambiar-clave": cambiar_clave,
     "vaciar-base": vaciar_base,
 }

@@ -21,7 +21,8 @@ from email.utils import formataddr, formatdate, make_msgid
 RUTA = os.environ.get("REGISTRO1280_CORREO_INI", "/var/lib/registro1280/correo.ini")
 SERVIDOR = "smtp.gmail.com"
 PUERTO = 587
-NOMBRE = "Registro de pesadas 1280"
+EQUIPO = "Balanza de Coches - PDL"          # nombre que va en los correos en lugar de "pesadas"
+NOMBRE = "Registro de " + EQUIPO            # remitente
 COLUMNAS_CSV = ("ID", "Producto", "cor", "Peso", "Acumulado", "Hora inicial", "Hora fin", "Fecha", "Turno")
 _DIRECCION = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
                         r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$")
@@ -70,7 +71,7 @@ def leer_cuenta(ruta=None):
     s = ini["correo"]
     cuenta = {"usuario": s.get("usuario", "").strip(), "clave": s.get("clave", "").replace(" ", ""),
               "servidor": s.get("servidor", SERVIDOR).strip(), "puerto": s.getint("puerto", PUERTO),
-              "seguridad": s.get("seguridad", "starttls").strip().lower(), "nombre": s.get("nombre", NOMBRE)}
+              "seguridad": s.get("seguridad", "starttls").strip().lower(), "nombre": NOMBRE}
     if not cuenta["usuario"] or not cuenta["clave"]:
         raise ErrorCorreo("La cuenta de correo está incompleta. Configurarla con:  sudo correo cuenta")
     return cuenta
@@ -148,8 +149,8 @@ def rango(desde, hasta):
 
 def nombre_archivo(desde, hasta):
     if desde.date() == hasta.date():
-        return "pesadas_%s_%s-%s.csv" % (desde.strftime("%Y%m%d"), desde.strftime("%H%M"), hasta.strftime("%H%M"))
-    return "pesadas_%s-%s.csv" % (desde.strftime("%Y%m%d_%H%M"), hasta.strftime("%Y%m%d_%H%M"))
+        return "%s_%s_%s-%s.csv" % (EQUIPO, desde.strftime("%Y%m%d"), desde.strftime("%H%M"), hasta.strftime("%H%M"))
+    return "%s_%s-%s.csv" % (EQUIPO, desde.strftime("%Y%m%d_%H%M"), hasta.strftime("%Y%m%d_%H%M"))
 
 
 def cantidad_texto(n):
@@ -159,7 +160,7 @@ def cantidad_texto(n):
 
 
 def asunto_tramo(desde, hasta, n, sin_controlador=False):
-    asunto = "Pesadas %s - %s" % (rango(desde, hasta), cantidad_texto(n))
+    asunto = "%s %s - %s" % (EQUIPO, rango(desde, hasta), cantidad_texto(n))
     if sin_controlador:
         asunto += " - Controlador sin respuesta"
     return asunto

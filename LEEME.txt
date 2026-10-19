@@ -71,6 +71,11 @@
    Configuración: lo mismo que los comandos de la terminal. Envío por correo (cada cuántos minutos, activar, detener; Para y Copia con un correo por casilla y el botón Agregar correo; cuenta de Gmail y su contraseña de aplicación, que se puede ver con el botón Ver), guardado automático (minutos, activar, detener, guardar ahora) y controlador (IP, puerto, probar conexión). Abajo se ven los últimos cambios, con fecha, resultado y desde qué IP se hicieron. Todo queda guardado y sigue funcionando aunque se reinicie la Pi.
    Después de 5 claves incorrectas se bloquea el ingreso por 5 minutos. Como desde la web se puede cambiar la configuración y la web está publicada en internet, conviene cambiar la clave: sudo cambiar-clave
 
+13b. Estado de comunicación: la Pi le hace ping al controlador cada 5 segundos (cambiable) y muestra "Activo" o "Falla de comunicación" en Configuración. Solo es ping: no usa el puerto 10001, así que no molesta al controlador ni a Captura 1280. El estado no se guarda en la base (queda en memoria). Cada correo lleva el último valor: "Estado de comunicación: Activo (16:19:58)". Por terminal:
+    comunicacion 5           ping cada 5 segundos
+    comunicacion detener     desactivar
+    comunicacion             ver el estado
+
 14. Publicar la web en internet con Tailscale Funnel (para abrirla sin tener Tailscale):
     sudo tailscale funnel --bg --https=443 8081
    La primera vez Tailscale pide aprobar Funnel: lo aprueba el administrador de la cuenta subelrobotin en el enlace que aparece. Ver la dirección pública (https://intradevco....ts.net):

@@ -103,6 +103,22 @@
       </form>
       <p class="resultado" id="res-controlador" role="status"></p>
     </section>
+
+    <section class="panel" aria-labelledby="t-comunicacion">
+      <div class="panel-cabeza">
+        <h2 id="t-comunicacion">Estado de comunicación</h2>
+        <span class="estado" id="com-estado">–</span>
+      </div>
+      <form class="fila" data-tipo="comunicacion">
+        <div class="campo minutos"><label for="com-segundos">Cada (segundos)</label>
+          <input id="com-segundos" name="datos" inputmode="numeric" pattern="[0-9]*" maxlength="5" required></div>
+        <div class="botones">
+          <button type="submit" class="primario">Activar</button>
+          <button type="button" data-tipo="comunicacion" data-datos="detener">Desactivar</button>
+        </div>
+      </form>
+      <p class="resultado" id="res-comunicacion" role="status"></p>
+    </section>
   </div>
 
   <section class="panel ancho-total" aria-labelledby="t-cambios">

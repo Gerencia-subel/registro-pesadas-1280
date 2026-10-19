@@ -11,7 +11,7 @@ import math
 import socket
 from datetime import datetime, timedelta
 
-from . import basedatos, correo, formato
+from . import basedatos, comunicacion, correo, formato
 from .basedatos import ErrorBase
 from .controlador import ErrorControlador, consultar, leer_pesadas
 from .guardado import guardar as guardar_ahora
@@ -89,6 +89,23 @@ def controlador_probar(con):
         raise ErrorAccion("Controlador %s:%s - %s" % (cfg.get("ip"), cfg.get("puerto"), e))
     return "El controlador %s:%s respondió: %s (%.1f s)" % (cfg.get("ip"), cfg.get("puerto"),
                                                             " ".join(respuesta.split()), segundos)
+
+
+# ------------------------------------------------------------------ estado de comunicación
+def comunicacion_activar(con, segundos):
+    try:
+        segundos = int(str(segundos).strip())
+        if segundos < 1:
+            raise ValueError
+    except ValueError:
+        raise ErrorAccion("Los segundos deben ser un número entero mayor que 0 (por ejemplo 5).")
+    basedatos.guardar_config(con, comunicacion_activo="1", comunicacion_segundos=str(segundos))
+    return "Estado de comunicación activado: ping al controlador cada %d segundo%s." % (segundos, _plural(segundos))
+
+
+def comunicacion_detener(con):
+    basedatos.guardar_config(con, comunicacion_activo="0")
+    return "Estado de comunicación desactivado."
 
 
 # ------------------------------------------------------------------ guardar
@@ -273,16 +290,18 @@ def correo_probar(con, destino="", leer=None, enviar=None, leer_cuenta=None, rel
         nota = "No se pudo leer el controlador (%s), por eso no va el archivo de muestra." % e
         resumen = "sin archivo: no se pudo leer el controlador (%s)" % e
     if muestra:
-        archivo = "pesadas_prueba_%s.csv" % momento.strftime("%Y%m%d_%H%M")
+        archivo = "%s_prueba_%s.csv" % (correo.EQUIPO, momento.strftime("%Y%m%d_%H%M"))
         nota = ("Archivo adjunto de muestra: las últimas %d pesadas del controlador (no se guardan ni cuentan "
                 "como enviadas)." % len(muestra))
         resumen = "muestra de %d pesadas del controlador" % len(muestra)
-    cuerpo = ("Correo de prueba del registro de pesadas del Rice Lake 1280 (Raspberry %s), enviado el %s.\n\n"
+    estado = comunicacion.texto_estado(comunicacion.leer_estado(cfg, reloj))
+    cuerpo = ("Correo de prueba del registro de %s del Rice Lake 1280 (Raspberry %s), enviado el %s.\n\n"
               "Los envíos automáticos llegan con el asunto, por ejemplo:\n"
-              "Pesadas 19/10/2026 09:10 - 09:15 - 12 pesadas\n"
+              "%s 19/10/2026 09:10 - 09:15 - 12 pesadas\n"
               "y un archivo CSV solo con las pesadas nuevas de ese tramo.\n\n%s\n"
-              % (socket.gethostname(), formato.fecha(momento), nota))
-    mensaje = correo.armar_mensaje(cuenta, para, copia, "Prueba - Registro de pesadas 1280", cuerpo,
+              "Estado de comunicación: %s\n"
+              % (correo.EQUIPO, socket.gethostname(), formato.fecha(momento), correo.EQUIPO, nota, estado))
+    mensaje = correo.armar_mensaje(cuenta, para, copia, "Prueba - " + correo.NOMBRE, cuerpo,
                                    correo.armar_csv(muestra) if muestra else None, archivo)
     destinos = "a %s%s" % (", ".join(para), "; copia %s" % ", ".join(copia) if copia else "")
     error, no_aceptados = None, ""
@@ -315,6 +334,7 @@ TIPOS = {
     "bucle": "Guardado automático",
     "controlador": "Controlador",
     "controlador_probar": "Probar controlador",
+    "comunicacion": "Estado de comunicación",
     "guardar": "Guardar ahora",
     "correo": "Envío por correo",
     "correo_para": "Destinatarios (para)",
@@ -338,6 +358,8 @@ def ejecutar(con, tipo, datos, reloj=ahora, leer=None, enviar=None, leer_cuenta=
         return controlador_cambiar(con, partes[0], partes[1] if len(partes) > 1 else 10001)
     if tipo == "controlador_probar":
         return controlador_probar(con)
+    if tipo == "comunicacion":
+        return comunicacion_detener(con) if datos == "detener" else comunicacion_activar(con, datos)
     if tipo == "guardar":
         return guardar(con, "web", leer=leer, reloj=reloj, dormir=dormir)
     if tipo == "correo":

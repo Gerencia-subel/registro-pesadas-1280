@@ -9,11 +9,12 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-systemctl disable --now registro1280-bucle registro1280-web registro1280-correo >/dev/null 2>&1 || true
+systemctl disable --now registro1280-bucle registro1280-web registro1280-correo registro1280-comunicacion \
+  >/dev/null 2>&1 || true
 rm -f /etc/systemd/system/registro1280-bucle.service /etc/systemd/system/registro1280-web.service \
-      /etc/systemd/system/registro1280-correo.service
+      /etc/systemd/system/registro1280-correo.service /etc/systemd/system/registro1280-comunicacion.service
 systemctl daemon-reload
-for c in mostrar guardar visualizar bucle correo controlador cambiar-clave vaciar-base actualizar; do
+for c in mostrar guardar visualizar bucle correo comunicacion controlador cambiar-clave vaciar-base actualizar; do
   if grep -q "Registro de pesadas 1280" "/usr/local/bin/$c" 2>/dev/null; then
     rm -f "/usr/local/bin/$c"
   fi
