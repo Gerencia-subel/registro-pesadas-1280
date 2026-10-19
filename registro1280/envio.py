@@ -12,6 +12,7 @@ y si un envío falla, sus pesadas salen en el siguiente correo junto con las nue
 """
 
 import logging
+import os
 import socket
 import threading
 import time
@@ -68,6 +69,20 @@ def siguiente_envio(despues_de, minutos, base=None):
     return inicio + ((despues_de - inicio) // paso + 1) * paso
 
 
+def reloj_sincronizado():
+    """La Raspberry no tiene reloj propio: al encender, la hora es la del último apagado hasta que
+    se sincroniza por internet. En los primeros 10 minutos se espera esa sincronización para no
+    poner horas equivocadas en el tramo; después se sigue igual."""
+    try:
+        with open("/proc/uptime") as f:
+            encendida = float(f.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return True
+    if encendida > 600 or not os.path.isdir("/run/systemd/timesync"):
+        return True
+    return os.path.exists("/run/systemd/timesync/synchronized")
+
+
 def cuerpo_tramo(desde, hasta, n, archivo, aviso=""):
     lineas = []
     if n:
@@ -84,18 +99,21 @@ def cuerpo_tramo(desde, hasta, n, archivo, aviso=""):
 
 class ServicioCorreo:
     def __init__(self, conectar=basedatos.conectar, leer=leer_pesadas, reloj=ahora, enviar=correo.enviar,
-                 leer_cuenta=correo.leer_cuenta, espera_reintento=30, dormir=None):
+                 leer_cuenta=correo.leer_cuenta, espera_reintento=30, dormir=None,
+                 reloj_listo=reloj_sincronizado):
         self.conectar = conectar
         self.leer = leer
         self.reloj = reloj
         self.enviar = enviar
         self.leer_cuenta = leer_cuenta
+        self.reloj_listo = reloj_listo
         self.espera_reintento = espera_reintento
         self.detener = threading.Event()
         self.dormir = dormir or self.detener.wait
         self._con = None
         self._ultimo_latido = 0.0
         self._activo = None
+        self._por_anotar = None   # correo ya enviado (o fallido) que falta anotar en la base
 
     # ------------------------------------------------------------------
     def correr(self):
@@ -131,6 +149,11 @@ class ServicioCorreo:
         if time.monotonic() - self._ultimo_latido >= LATIDO_CADA:
             basedatos.guardar_config(con, correo_latido=texto_fecha(self.reloj()))
             self._ultimo_latido = time.monotonic()
+        if self._por_anotar is not None:
+            # Un correo ya salió pero no se pudo anotar en la base (se cayó la conexión, por
+            # ejemplo): se reintenta solo la anotación. Ese tramo nunca se vuelve a enviar.
+            self._anotar(con)
+            return 0.5
         cfg = basedatos.config(con)
         activo = cfg.get("correo_activo") == "1"
         minutos = minutos_config(cfg)
@@ -146,26 +169,39 @@ class ServicioCorreo:
             return 0.5
         if momento < proximo:
             return (proximo - momento).total_seconds()
+        if not self.reloj_listo():
+            return 5
         if not basedatos.tomar_candado_correo(con):
             return 5
         try:
-            hasta, salio = self.enviar_tramo(con, cfg, proximo, momento)
+            resultado = self.enviar_tramo(con, cfg, proximo, momento)
         finally:
             basedatos.soltar_candado_correo(con)
+        resultado.update(cfg=cfg, proximo=proximo)
+        self._por_anotar = resultado
+        self._anotar(con)
+        return 0.5
+
+    def _anotar(self, con):
+        """Anota el correo, marca sus pesadas y programa el siguiente, todo en una sola operación."""
+        r = self._por_anotar
+        cfg, actual = r["cfg"], basedatos.config(con)
+        cambios = {}
         # Si mientras se enviaba alguien detuvo o volvió a activar el correo, se respeta lo nuevo.
-        actual = basedatos.config(con)
         if actual.get("correo_activo") == "1" and actual.get("correo_desde") == cfg.get("correo_desde") \
                 and actual.get("correo_proximo") == cfg.get("correo_proximo"):
-            cambios = {"correo_proximo": texto_fecha(siguiente_envio(self.reloj(), minutos_config(actual),
-                                                                     base=proximo))}
-            if salio:
-                cambios["correo_desde"] = texto_fecha(hasta)
-            basedatos.guardar_config(con, **cambios)
-        return 0.5
+            cambios["correo_proximo"] = texto_fecha(siguiente_envio(self.reloj(), minutos_config(actual),
+                                                                    base=r["proximo"]))
+            if r["ok"]:
+                cambios["correo_desde"] = texto_fecha(r["hasta"])
+        basedatos.registrar_correo(con, nros_enviados=r["enviadas"] or (), config_nueva=cambios,
+                                   enviado_en=r["enviado_en"], resultado="OK" if r["ok"] else "ERROR",
+                                   detalle=r["detalle"] or "", **r["datos"])
+        self._por_anotar = None
 
     # ------------------------------------------------------------------
     def enviar_tramo(self, con, cfg, proximo, momento):
-        """Descarga, arma el CSV de lo pendiente y lo envía. Devuelve (fin del tramo, salió bien)."""
+        """Descarga, arma el CSV de lo pendiente y lo envía. Devuelve lo que hay que anotar."""
         minutos = minutos_config(cfg)
         # Normalmente el tramo termina en la hora programada. Si la Pi estuvo apagada o sin
         # servicio, termina ahora (cubre todo lo que faltaba).
@@ -221,7 +257,5 @@ class ServicioCorreo:
         return self._resultado(con, datos, hasta, None, error)
 
     def _resultado(self, con, datos, hasta, enviadas, detalle):
-        ok = enviadas is not None
-        basedatos.registrar_correo(con, nros_enviados=enviadas or (), enviado_en=self.reloj(),
-                                   resultado="OK" if ok else "ERROR", detalle=detalle or "", **datos)
-        return hasta, ok
+        return {"datos": datos, "hasta": hasta, "ok": enviadas is not None, "enviadas": enviadas,
+                "detalle": detalle, "enviado_en": self.reloj()}

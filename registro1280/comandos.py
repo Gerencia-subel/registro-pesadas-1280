@@ -2,11 +2,14 @@
 
 import getpass
 import ipaddress
+import math
 import os
 import socket
 import subprocess
 import sys
 from datetime import datetime
+
+import MySQLdb
 
 from . import basedatos, correo as correo_gmail, formato
 from .basedatos import ErrorBase
@@ -222,7 +225,10 @@ def correo(argumentos):
     try:
         con = _con()
         if accion in ("detener", "parar", "stop"):
-            basedatos.guardar_config(con, correo_activo="0")
+            if basedatos.config(con).get("correo_activo") != "1":
+                print("El envío por correo ya estaba detenido. Para activarlo: correo 5")
+                return 0
+            basedatos.guardar_config(con, correo_activo="0", correo_detenido=texto_fecha(ahora()))
             print("Envío por correo detenido. Para volver a activarlo: correo 5")
             print("(Al activarlo de nuevo, lo que se guarde mientras esté detenido no se envía.)")
             return 0
@@ -239,6 +245,8 @@ def correo(argumentos):
         return _correo_activar(con, minutos)
     except ErrorBase as e:
         return _salir(str(e))
+    except MySQLdb.Error as e:
+        return _salir("Error de la base de datos: %s" % (e.args[1] if len(e.args) > 1 else e))
 
 
 def _correo_direcciones(con, accion, resto):
@@ -258,6 +266,8 @@ def _correo_direcciones(con, accion, resto):
         return _salir(str(e))
     if not lista:
         return _salir(_USO_CORREO)
+    if len(", ".join(lista)) > 1000:
+        return _salir("Demasiadas direcciones (máximo 1000 caracteres en total).")
     basedatos.guardar_config(con, **{clave: ", ".join(lista)})
     print("%s: %s" % ("Para" if accion == "para" else "Copia", ", ".join(lista)))
     return 0
@@ -279,26 +289,49 @@ def _correo_activar(con, minutos):
         else:
             print("Intervalo cambiado a %d minuto%s. El próximo correo sale a las %s, como estaba programado; "
                   "desde ahí, cada %d minuto%s." % (minutos, plural, _hora(proximo), minutos, plural))
+            _aviso_limite_gmail(cfg, minutos)
         return 0
     print("Descargando el controlador para que lo que ya está registrado no se envíe...")
     try:
-        guardar_ahora(con, "manual", reintentos=1)
+        guardar_ahora(con, "manual", reintentos=1, reloj=ahora)
     except (ErrorControlador, ErrorBase) as e:
         return _salir("No se activó el correo: no se pudo leer el controlador (%s).\n"
                       "Revisar con: controlador probar  y volver a intentar." % e)
-    anteriores = basedatos.marcar_sin_enviar(con)
+    # Lo guardado antes de activar (o mientras estuvo detenido) no se envía. Lo que había quedado
+    # pendiente mientras estaba activo (por ejemplo, un envío que falló) sí se envía.
+    anteriores = basedatos.marcar_sin_enviar(con, leer_fecha(cfg.get("correo_detenido")))
+    pendientes = basedatos.contar_pendientes(con)
     momento = ahora()
     proximo = siguiente_envio(momento, minutos)
     basedatos.guardar_config(con, correo_minutos=str(minutos), correo_desde=texto_fecha(momento),
-                             correo_proximo=texto_fecha(proximo), correo_activo="1")
+                             correo_proximo=texto_fecha(proximo), correo_detenido="", correo_activo="1")
     print("Correo activado: cada %d minuto%s. Primer envío a las %s con las pesadas desde las %s."
           % (minutos, plural, _hora(proximo), _hora(momento)))
     print("Cada correo lleva solo las pesadas nuevas de su tramo; ninguna se envía dos veces.")
     print("Lo que ya estaba guardado (%s pesadas) no se envía." % formato.numero(anteriores))
+    if pendientes:
+        print("Además van en el primer correo %s pesadas que habían quedado sin enviar antes de detenerlo."
+              % formato.numero(pendientes))
+    _aviso_limite_gmail(cfg, minutos)
     ok, texto = _estado_servicio(basedatos.config(con), "correo_latido", "del correo")
     if not ok:
         print("ATENCIÓN: %s. Revisar: sudo systemctl status registro1280-correo" % texto)
     return 0
+
+
+def _aviso_limite_gmail(cfg, minutos):
+    """Una cuenta de Gmail gratuita acepta alrededor de 500 envíos al día (cada destinatario cuenta)."""
+    try:
+        destinatarios = len(correo_gmail.direcciones(cfg.get("correo_para"))) + \
+            len(correo_gmail.direcciones(cfg.get("correo_copia")))
+    except ValueError:
+        return
+    correos = math.ceil(24 * 60 / minutos)
+    if correos * max(1, destinatarios) > 450:
+        print("Aviso: así son %s correos al día (%s envíos contando para y copia). Una cuenta de Gmail "
+              "gratuita acepta alrededor de 500 al día; si se pasa, Gmail deja de aceptar envíos por unas "
+              "horas. Las pesadas no se pierden: van en el primer correo que Gmail vuelva a aceptar."
+              % (formato.numero(correos), formato.numero(correos * max(1, destinatarios))))
 
 
 def _correo_estado(con):
@@ -503,7 +536,7 @@ def vaciar_base(argumentos):
     if input('Para confirmar escribir BORRAR: ').strip() != "BORRAR":
         print("No se borró nada.")
         return 1
-    basedatos.guardar_config(con, correo_activo="0", correo_desde="", correo_proximo="")
+    basedatos.guardar_config(con, correo_activo="0", correo_desde="", correo_proximo="", correo_detenido="")
     cur = con.cursor()
     for tabla in ("pesadas", "descargas", "rechazadas", "correos"):
         cur.execute("TRUNCATE TABLE %s" % tabla)

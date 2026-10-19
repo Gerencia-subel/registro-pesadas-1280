@@ -5,6 +5,10 @@
 #   sudo actualizar volver      vuelve a la versión anterior
 #   sudo actualizar configurar  crea la llave de solo lectura para GitHub (una sola vez)
 # Las pesadas guardadas, la configuración y la clave de la web nunca se tocan.
+#
+# Todo el script va entre { } y termina con exit: bash lo lee completo antes de empezar,
+# así no le afecta que la instalación reemplace este mismo archivo mientras corre.
+{
 set -euo pipefail
 
 REPO_URL="${REGISTRO1280_REPO:-ssh://git@ssh.github.com:443/Gerencia-subel/registro-pesadas-1280.git}"
@@ -60,6 +64,18 @@ instalar_version() {   # $1 = commit
   git -C "$COPIA" reset -q --hard "$1"
   git -C "$COPIA" clean -q -fdx
   (cd "$COPIA" && bash instalar.sh)
+  quitar_lo_que_no_tiene "$COPIA"
+}
+
+# Al volver a una versión anterior al envío por correo (1.1), su instalador no conoce el
+# servicio del correo: se detiene y se quita aquí. La cuenta de Gmail (correo.ini) se conserva.
+quitar_lo_que_no_tiene() {   # $1 = carpeta de la versión instalada
+  if [ ! -f "$1/registro1280-correo.service" ] && [ -f /etc/systemd/system/registro1280-correo.service ]; then
+    systemctl disable --now registro1280-correo >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/registro1280-correo.service
+    grep -q "Registro de pesadas 1280" /usr/local/bin/correo 2>/dev/null && rm -f /usr/local/bin/correo
+    systemctl daemon-reload
+  fi
 }
 
 accion="${1:-}"
@@ -168,3 +184,5 @@ case "$accion" in
     exit 1
     ;;
 esac
+exit 0
+}

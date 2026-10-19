@@ -82,7 +82,7 @@ def _correo_json(c):
     tramo = correo.rango(c["desde"], c["hasta"]) if c["desde"] and c["hasta"] else ""
     return {"nro": c["nro"], "enviado_en": formato.fecha_segundos(c["enviado_en"]), "tipo": c["tipo"],
             "tramo": tramo, "pesadas": c["pesadas"], "resultado": c["resultado"],
-            "archivo": c["archivo"] or "", "detalle": c["detalle"] or ""}
+            "archivo": c["archivo"] or "", "detalle": correo.sin_direcciones(c["detalle"])}
 
 
 def crear_app(ajustes, conectar=basedatos.conectar):

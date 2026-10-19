@@ -64,9 +64,13 @@ mkdir -p "$DESTINO"
 if [ "$ORIGEN" != "$DESTINO" ]; then
   rm -rf "$DESTINO/registro1280" "$DESTINO/pruebas"
   cp -r "$ORIGEN/registro1280" "$ORIGEN/pruebas" "$DESTINO/"
-  cp "$ORIGEN/LEEME.txt" "$ORIGEN/instalar.sh" "$ORIGEN/desinstalar.sh" "$ORIGEN/actualizar.sh" \
-     "$ORIGEN/registro1280-bucle.service" "$ORIGEN/registro1280-web.service" \
-     "$ORIGEN/registro1280-correo.service" "$DESTINO/"
+  # Se copia a un archivo nuevo y se renombra: si "actualizar" está corriendo desde
+  # /opt/registro1280/actualizar.sh, no se le cambia el archivo mientras bash lo lee.
+  for f in LEEME.txt instalar.sh desinstalar.sh actualizar.sh registro1280-bucle.service \
+           registro1280-web.service registro1280-correo.service; do
+    cp "$ORIGEN/$f" "$DESTINO/.$f.nuevo"
+    mv -f "$DESTINO/.$f.nuevo" "$DESTINO/$f"
+  done
 fi
 find "$DESTINO" -name "__pycache__" -type d -prune -exec rm -rf {} +
 chown -R root:root "$DESTINO"

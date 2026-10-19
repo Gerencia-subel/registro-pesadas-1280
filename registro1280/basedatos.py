@@ -182,17 +182,24 @@ def contar_pendientes(con):
     return int(n)
 
 
-def marcar_sin_enviar(con):
-    """Al activar el correo: lo que ya estaba guardado queda marcado con 0 y no se envía."""
+def marcar_sin_enviar(con, guardadas_desde=None):
+    """Al activar el correo: lo ya guardado queda marcado con 0 y no se envía.
+
+    Con guardadas_desde (cuando se detuvo el correo) solo se marcan las guardadas desde esa
+    hora: las que quedaron pendientes mientras el correo estaba activo se siguen enviando.
+    """
     cur = con.cursor()
-    cur.execute("UPDATE pesadas SET correo = 0 WHERE correo IS NULL")
+    if guardadas_desde:
+        cur.execute("UPDATE pesadas SET correo = 0 WHERE correo IS NULL AND guardado_en >= %s", (guardadas_desde,))
+    else:
+        cur.execute("UPDATE pesadas SET correo = 0 WHERE correo IS NULL")
     n = cur.rowcount
     con.commit()
     return n
 
 
-def registrar_correo(con, nros_enviados=(), **campos):
-    """Anota un correo en la tabla correos y, si salió bien, marca sus pesadas (todo junto)."""
+def registrar_correo(con, nros_enviados=(), config_nueva=None, **campos):
+    """Anota un correo en la tabla correos, marca sus pesadas y guarda config_nueva, todo junto."""
     columnas = ("enviado_en", "tipo", "desde", "hasta", "pesadas", "resultado", "para", "copia",
                 "archivo", "detalle")
     valores = [campos.get(c) for c in columnas]
@@ -209,6 +216,9 @@ def registrar_correo(con, nros_enviados=(), **campos):
             parte = nros[i:i + LOTE]
             cur.execute("UPDATE pesadas SET correo = %%s WHERE correo IS NULL AND nro IN (%s)"
                         % ", ".join(["%s"] * len(parte)), [nro] + parte)
+        for clave, valor in (config_nueva or {}).items():
+            cur.execute("INSERT INTO configuracion (clave, valor) VALUES (%s, %s) "
+                        "ON DUPLICATE KEY UPDATE valor = VALUES(valor)", (clave, str(valor)))
         con.commit()
     except Exception:
         try:

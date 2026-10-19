@@ -12,6 +12,8 @@ from datetime import datetime
 from decimal import Decimal
 from unittest import mock
 
+import MySQLdb
+
 import ayuda
 from registro1280 import basedatos, comandos, correo
 from registro1280.controlador import ErrorControlador, leer_pesadas
@@ -145,6 +147,17 @@ class EnvioSMTP(unittest.TestCase):
         self.assertIn("subelrobotin@gmail.com", aviso)
         self.assertEqual(len(self.smtp.mensajes), 1)
 
+    def test_corte_despues_del_contenido_no_se_reintenta(self):
+        self.smtp.modo = "sin_respuesta"
+        cuenta = self.smtp.cuenta()
+        with self.assertRaises(correo.ErrorCorreo) as e:
+            correo.enviar(cuenta, self.mensaje(cuenta), espera=3)
+        self.assertFalse(e.exception.reintentar)     # pudo haber llegado: no se manda dos veces
+
+    def test_sin_direcciones_para_la_web(self):
+        self.assertEqual(correo.sin_direcciones("Gmail no aceptó: ktomasl@alicorp.com.pe (550 5.1.1)"),
+                         "Gmail no aceptó: (dirección) (550 5.1.1)")
+
     def test_sin_conexion(self):
         cuenta = self.smtp.cuenta()
         self.smtp.cerrar()
@@ -181,7 +194,7 @@ class Tramos(unittest.TestCase):
         ayuda.con_simulador(self.con, self.sim)
         self.controlador_caido = False
         self.servicio = ServicioCorreo(leer=self.leer, reloj=self.reloj, leer_cuenta=self.smtp.cuenta,
-                                       espera_reintento=0, dormir=lambda s: None)
+                                       espera_reintento=0, dormir=lambda s: None, reloj_listo=lambda: True)
         basedatos.guardar_config(self.con, correo_para="ktomasl@alicorp.com.pe", correo_copia="subelrobotin@gmail.com")
 
     def tearDown(self):
@@ -200,6 +213,11 @@ class Tramos(unittest.TestCase):
             codigo, salida, error = correr(comandos.correo, str(minutos))
         self.assertEqual(codigo, 0, error)
         return salida
+
+    def detener(self):
+        with mock.patch.object(comandos, "ahora", self.reloj):
+            codigo, salida, error = correr(comandos.correo, "detener")
+        self.assertEqual(codigo, 0, error)
 
     def pesar(self, n):
         """n pesadas que terminan en el minuto actual del reloj."""
@@ -323,7 +341,7 @@ class Tramos(unittest.TestCase):
 
     def test_detenido_no_envia_y_al_reactivar_empieza_de_cero(self):
         self.activar(5)
-        correr(comandos.correo, "detener")
+        self.detener()
         self.hasta(9, 14)
         self.pesar(3)
         self.hasta(9, 15)
@@ -335,6 +353,58 @@ class Tramos(unittest.TestCase):
         b = self.pesar(1)
         self.hasta(9, 45)
         self.assertEqual(self.ids_enviados(), [int(b[0].split("|")[0])])
+
+    def test_al_reactivar_sale_lo_que_habia_quedado_pendiente(self):
+        self.activar(5)
+        self.hasta(9, 14)
+        a = self.pesar(2)
+        self.smtp.modo = "caido"
+        self.hasta(9, 15)                                       # falla: quedan 2 pendientes
+        self.hasta(9, 16)
+        self.detener()
+        self.hasta(9, 17)
+        self.pesar(1)                                           # pesada mientras está detenido: no se envía
+        self.smtp.modo = "normal"
+        self.hasta(9, 18)
+        salida = self.activar(5)
+        self.assertIn("Además van en el primer correo 2 pesadas", salida)
+        self.hasta(9, 20)
+        self.assertEqual(asunto(self.smtp.mensajes[0]["mensaje"]), "Pesadas 19/10/2026 09:18 - 09:20 - 2 pesadas")
+        self.assertEqual(sorted(self.ids_enviados()), sorted(int(p.split("|")[0]) for p in a))
+        self.assertEqual(basedatos.contar_pendientes(self.con), 0)
+
+    def test_si_falla_la_base_despues_de_enviar_no_se_repite(self):
+        original = basedatos.registrar_correo
+        fallas = [1]
+
+        def registrar(*args, **kw):
+            if fallas:
+                fallas.pop()
+                raise MySQLdb.OperationalError(2013, "Lost connection to server during query")
+            return original(*args, **kw)
+        self.activar(5)
+        self.hasta(9, 14)
+        a = self.pesar(2)
+        with mock.patch.object(basedatos, "registrar_correo", registrar):
+            with self.assertRaises(MySQLdb.OperationalError):
+                self.hasta(9, 15)
+            self.hasta(9, 15, 12)                               # solo anota, no vuelve a enviar
+        self.assertEqual(len(self.smtp.mensajes), 1)
+        self.assertEqual(basedatos.contar_pendientes(self.con), 0)
+        self.assertEqual([c["resultado"] for c in basedatos.correos(self.con, 10)], ["OK"])
+        self.hasta(9, 20)
+        self.assertEqual(asunto(self.smtp.mensajes[1]["mensaje"]), "Pesadas 19/10/2026 09:15 - 09:20 - Sin pesadas")
+        self.assertEqual(sorted(self.ids_enviados()), sorted(int(p.split("|")[0]) for p in a))
+
+    def test_espera_que_se_sincronice_la_hora_al_encender(self):
+        self.activar(5)
+        listo = [False]
+        self.servicio.reloj_listo = lambda: listo[0]
+        self.hasta(9, 15)
+        self.assertEqual(self.smtp.mensajes, [])
+        listo[0] = True
+        self.hasta(9, 15, 30)
+        self.assertEqual(len(self.smtp.mensajes), 1)
 
     def test_sin_destinatarios_o_sin_cuenta_queda_anotado(self):
         self.activar(5)
@@ -376,9 +446,16 @@ class ComandoCorreo(unittest.TestCase):
         codigo, salida, _ = correr(comandos.correo, "para", "ktomasl@alicorp.com.pe")
         self.assertIn("Para: ktomasl@alicorp.com.pe", salida)
         codigo, salida, _ = correr(comandos.correo, "copia", "subelrobotin@gmail.com")
+        codigo, _, error = correr(comandos.correo, "copia", *["persona%d@empresa.com.pe" % i for i in range(60)])
+        self.assertEqual(codigo, 1)
+        self.assertIn("Demasiadas direcciones", error)
+        codigo, salida, _ = correr(comandos.correo, "copia", " ".join("p%d@alicorp.com.pe" % i for i in range(9)))
+        self.assertEqual(codigo, 0)                               # más de 200 caracteres, entra
+        codigo, salida, _ = correr(comandos.correo, "copia", "subelrobotin@gmail.com")
         codigo, salida, _ = correr(comandos.correo, "5")
         self.assertEqual(codigo, 0)
         self.assertIn("Correo activado: cada 5 minutos", salida)
+        self.assertIn("288 correos al día (576 envíos contando para y copia)", salida)
         codigo, salida, _ = correr(comandos.correo)
         self.assertIn("Correo: activo, cada 5 minutos", salida)
         self.assertIn("Copia: subelrobotin@gmail.com", salida)

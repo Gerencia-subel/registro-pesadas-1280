@@ -2,7 +2,8 @@
 
 Acepta AUTH PLAIN con un usuario y clave fijos, guarda cada mensaje recibido y
 puede simular fallas: modo "limite" (Gmail 550 5.4.5 límite diario), "caido"
-(cierra la conexión) o rechazar un destinatario.
+(cierra la conexión), "sin_respuesta" (se corta después de recibir el contenido)
+o rechazar un destinatario.
 """
 
 import base64
@@ -29,6 +30,8 @@ class _Manejador(socketserver.StreamRequestHandler):
             if en_datos:
                 if linea in (b".\r\n", b".\n"):
                     en_datos = False
+                    if srv.modo == "sin_respuesta":     # recibe el correo pero se corta antes de responder
+                        return
                     if srv.modo == "limite":
                         self._decir("550 5.4.5 Daily user sending limit exceeded.")
                     else:

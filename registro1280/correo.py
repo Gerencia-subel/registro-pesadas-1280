@@ -97,6 +97,14 @@ def guardar_cuenta(usuario, clave, ruta=None):
 
 
 # ------------------------------------------------------------------ CSV
+_EN_TEXTO = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
+def sin_direcciones(texto):
+    """Para la web: reemplaza las direcciones de correo de un texto (no se muestran en la web)."""
+    return _EN_TEXTO.sub("(dirección)", texto or "")
+
+
 def numero_csv(valor):
     """Decimal('302.9500') -> '302.95'; Decimal('-81.6000') -> '-81.6'; Decimal('1000.0000') -> '1000'."""
     if valor is None:
@@ -230,15 +238,25 @@ def enviar(cuenta, mensaje, smtp=smtplib.SMTP, smtp_ssl=smtplib.SMTP_SSL, espera
     Devuelve un texto con los destinatarios que no se aceptaron (si a los demás sí les llegó).
     """
     servidor = None
+    datos_enviados = []
     try:
         servidor = _abrir(cuenta, smtp, smtp_ssl, espera)
         servidor.login(cuenta["usuario"], cuenta["clave"])
+        # Si la falla ocurre después de mandar el contenido (por ejemplo, no llega la respuesta
+        # de Gmail), no se sabe si el correo llegó: no se reintenta en el mismo tramo, para no
+        # mandarlo dos veces. Sus pesadas quedan pendientes y van en el siguiente correo.
+        data_original = servidor.data
+
+        def data(contenido):
+            datos_enviados.append(True)
+            return data_original(contenido)
+        servidor.data = data
         rechazados = servidor.send_message(mensaje) or {}
         if rechazados:
             return "Gmail no aceptó: " + ", ".join("%s (%s)" % (d, _texto_smtp(r)) for d, r in rechazados.items())
         return ""
     except Exception as e:
-        raise ErrorCorreo(_explicar(e, cuenta), reintentar=_vale_reintentar(e))
+        raise ErrorCorreo(_explicar(e, cuenta), reintentar=_vale_reintentar(e) and not datos_enviados)
     finally:
         if servidor is not None:
             try:

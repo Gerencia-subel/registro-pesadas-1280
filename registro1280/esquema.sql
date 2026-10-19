@@ -82,10 +82,12 @@ CREATE TABLE IF NOT EXISTS correos (
 
 -- Configuración: IP y puerto del controlador, el bucle y el correo.
 CREATE TABLE IF NOT EXISTS configuracion (
-  clave  VARCHAR(40)  NOT NULL,
-  valor  VARCHAR(200) NOT NULL,
+  clave  VARCHAR(40)   NOT NULL,
+  valor  VARCHAR(1000) NOT NULL,
   PRIMARY KEY (clave)
 ) ENGINE=InnoDB;
+-- Versión 1.2: más espacio para las listas de destinatarios del correo.
+ALTER TABLE configuracion MODIFY valor VARCHAR(1000) NOT NULL;
 
 INSERT IGNORE INTO configuracion (clave, valor) VALUES
   ('ip', '10.30.211.141'),
@@ -102,4 +104,5 @@ INSERT IGNORE INTO configuracion (clave, valor) VALUES
   ('correo_cuenta', ''),
   ('correo_desde', ''),
   ('correo_proximo', ''),
+  ('correo_detenido', ''),
   ('correo_latido', '');

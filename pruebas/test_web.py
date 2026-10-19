@@ -87,7 +87,8 @@ class Web(unittest.TestCase):
         con = basedatos.conectar()
         basedatos.registrar_correo(con, enviado_en=datetime(2026, 10, 19, 9, 15, 2), tipo="tramo",
                                    desde=datetime(2026, 10, 19, 9, 10), hasta=datetime(2026, 10, 19, 9, 15),
-                                   pesadas=0, resultado="OK", para="ktomasl@alicorp.com.pe", detalle="")
+                                   pesadas=0, resultado="OK", para="ktomasl@alicorp.com.pe",
+                                   detalle="Gmail no aceptó: ktomasl@alicorp.com.pe (550)")
         basedatos.guardar_config(con, correo_activo="1", correo_minutos="5", correo_proximo="2026-10-19 09:20:00")
         try:
             self.ingresar()
@@ -98,6 +99,7 @@ class Web(unittest.TestCase):
             c = self.cliente.get("/api/correos").get_json()["correos"]
             self.assertEqual((len(c), c[0]["resultado"], c[0]["tipo"]), (1, "OK", "tramo"))
             self.assertNotIn("para", c[0])          # la web no muestra direcciones
+            self.assertEqual(c[0]["detalle"], "Gmail no aceptó: (dirección) (550)")
             self.assertEqual(self.cliente.post("/api/correos").status_code, 405)
         finally:
             basedatos.guardar_config(con, correo_activo="0", correo_proximo="")
