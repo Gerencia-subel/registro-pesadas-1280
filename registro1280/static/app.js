@@ -4,6 +4,9 @@ const $ = (id) => document.getElementById(id);
 let pagina = 1;
 let paginas = 1;
 let filtros = {};
+let paginaCorreos = 1;
+let paginasCorreos = 1;
+let consultaCorreos = 0;
 
 async function pedir(ruta) {
   let r;
@@ -94,6 +97,7 @@ async function cargarPesadas() {
     return;
   }
   $("mensaje").className = "mensaje";
+  texto($("mensaje"), "");
   paginas = r.paginas;
   pagina = Math.min(r.pagina, r.paginas);
   cuerpo.innerHTML = "";
@@ -135,15 +139,26 @@ async function cargarPesadas() {
 }
 
 async function cargarCorreos() {
-  const r = await pedir("/api/correos");
+  const consulta = ++consultaCorreos;
+  const p = new URLSearchParams({ pagina: String(paginaCorreos), por_pagina: $("correos-por-pagina").value });
+  const r = await pedir("/api/correos?" + p.toString());
+  if (consulta !== consultaCorreos) return;
   const cuerpo = $("correos-filas");
+  if (!r.ok) {
+    $("correos-mensaje").className = "mensaje error";
+    texto($("correos-mensaje"), r.error);
+    return;
+  }
+  $("correos-mensaje").className = "mensaje";
+  texto($("correos-mensaje"), "");
+  paginaCorreos = r.pagina;
+  paginasCorreos = r.paginas;
   cuerpo.innerHTML = "";
-  if (!r.ok || !r.correos.length) {
+  if (!r.correos.length) {
     const tr = document.createElement("tr");
-    const td = celda(tr, r.ok ? "Todavía no se envió ningún correo." : r.error, "vacio");
+    const td = celda(tr, "Todavía no se envió ningún correo.", "vacio");
     td.colSpan = 8;
     cuerpo.appendChild(tr);
-    return;
   }
   for (const c of r.correos) {
     const tr = document.createElement("tr");
@@ -157,6 +172,12 @@ async function cargarCorreos() {
     celda(tr, c.detalle, "largo");
     cuerpo.appendChild(tr);
   }
+  const desde = r.total ? (paginaCorreos - 1) * r.por_pagina + 1 : 0;
+  const hasta = Math.min(paginaCorreos * r.por_pagina, r.total);
+  texto($("correos-pagina-texto"), "Página " + paginaCorreos + " de " + paginasCorreos + " (" +
+    desde.toLocaleString("en-US") + "–" + hasta.toLocaleString("en-US") + " de " + r.total_texto + ")");
+  $("correos-anterior").disabled = paginaCorreos <= 1;
+  $("correos-siguiente").disabled = paginaCorreos >= paginasCorreos;
 }
 
 function leerFiltros() {
@@ -180,17 +201,68 @@ $("limpiar").addEventListener("click", () => {
   pagina = 1;
   cargarPesadas();
 });
+$("exportar-excel").addEventListener("click", async () => {
+  if (!$("filtros").reportValidity()) return;
+  const parametros = new URLSearchParams();
+  for (const nombre of ["desde", "hasta", "producto", "id"]) {
+    const valor = $(nombre).value.trim();
+    if (valor) parametros.set(nombre, valor);
+  }
+  if (!parametros.toString()) {
+    if (!confirm("No has seleccionado ningún filtro. ¿Estás seguro de que deseas exportar toda la base de datos a Excel?")) return;
+    parametros.set("confirmar_todo", "1");
+  }
+  leerFiltros();
+  pagina = 1;
+  const boton = $("exportar-excel");
+  boton.disabled = true;
+  boton.textContent = "Exportando…";
+  try {
+    await cargarPesadas();
+    const r = await fetch("/api/pesadas/excel?" + parametros.toString(), { credentials: "same-origin" });
+    if (r.status === 401) { location.href = "/ingresar"; return; }
+    if (!r.ok) {
+      let mensaje = "No se pudo exportar a Excel (HTTP " + r.status + ").";
+      try { mensaje = (await r.json()).error || mensaje; } catch (e) { /* conservar el mensaje HTTP */ }
+      throw new Error(mensaje);
+    }
+    const url = URL.createObjectURL(await r.blob());
+    const enlace = document.createElement("a");
+    enlace.href = url;
+    const nombre = (r.headers.get("Content-Disposition") || "").match(/filename="?([^";]+)"?/);
+    enlace.download = nombre ? nombre[1] : "pesadas.xlsx";
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    $("mensaje").className = "mensaje";
+    texto($("mensaje"), "Archivo Excel descargado con todas las pesadas que coinciden con los filtros.");
+  } catch (e) {
+    $("mensaje").className = "mensaje error";
+    texto($("mensaje"), e.message || "Sin conexión con la Raspberry.");
+  } finally {
+    boton.disabled = false;
+    boton.textContent = "Exportar a Excel";
+  }
+});
 $("por_pagina").addEventListener("change", () => { leerFiltros(); pagina = 1; cargarPesadas(); });
 $("anterior").addEventListener("click", () => { if (pagina > 1) { pagina--; cargarPesadas(); } });
 $("siguiente").addEventListener("click", () => { if (pagina < paginas) { pagina++; cargarPesadas(); } });
 
-$("correos-caja").addEventListener("toggle", () => { if ($("correos-caja").open) cargarCorreos(); });
+$("correos-por-pagina").addEventListener("change", () => { paginaCorreos = 1; cargarCorreos(); });
+$("correos-anterior").addEventListener("click", () => {
+  if (paginaCorreos > 1) { paginaCorreos--; cargarCorreos(); }
+});
+$("correos-siguiente").addEventListener("click", () => {
+  if (paginaCorreos < paginasCorreos) { paginaCorreos++; cargarCorreos(); }
+});
 
 leerFiltros();
 cargarResumen();
 cargarPesadas();
+cargarCorreos();
 setInterval(() => {
   cargarResumen();
   if (pagina === 1) cargarPesadas();   // en la primera página aparecen las nuevas solas
-  if ($("correos-caja").open) cargarCorreos();
+  if (paginaCorreos === 1) cargarCorreos();
 }, 30000);

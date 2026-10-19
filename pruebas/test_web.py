@@ -1,13 +1,19 @@
 """Pruebas de la web de consulta (necesitan MariaDB)."""
 
 import json
+import io
 import unittest
+from datetime import datetime
+from decimal import Decimal
+from xml.etree import ElementTree as ET
+from zipfile import ZipFile
 
 from werkzeug.security import generate_password_hash
 
 import ayuda
 from registro1280 import basedatos
 from registro1280.guardado import guardar
+from registro1280.controlador import Pesada
 from registro1280.web import crear_app
 from simulador_1280 import Simulador
 
@@ -42,6 +48,7 @@ class Web(unittest.TestCase):
         self.assertEqual(r.status_code, 302)
         self.assertIn("/ingresar", r.headers["Location"])
         self.assertEqual(self.cliente.get("/api/pesadas").status_code, 401)
+        self.assertEqual(self.cliente.get("/api/correos").status_code, 401)
         self.assertEqual(self.cliente.get("/ingresar").status_code, 200)
         r = self.cliente.get("/static/estilo.css")
         self.assertEqual(r.status_code, 200)
@@ -105,6 +112,121 @@ class Web(unittest.TestCase):
             basedatos.guardar_config(con, correo_activo="0", correo_proximo="")
             con.cursor().execute("TRUNCATE correos")
             con.close()
+
+    def test_correos_paginados_sin_limite_de_50(self):
+        con = basedatos.conectar()
+        try:
+            for i in range(57):
+                basedatos.registrar_correo(con, enviado_en=datetime(2026, 10, 19, 9, i),
+                                           tipo="alerta" if i % 2 else "tramo", pesadas=i,
+                                           resultado="ERROR" if i == 0 else "OK")
+            self.ingresar()
+            primera = self.cliente.get("/api/correos").get_json()
+            self.assertEqual((primera["total"], primera["pagina"], primera["paginas"],
+                              primera["por_pagina"], len(primera["correos"])), (57, 1, 12, 5, 5))
+            ids = []
+            for pagina in range(1, 13):
+                r = self.cliente.get("/api/correos?pagina=%d" % pagina).get_json()
+                ids += [c["nro"] for c in r["correos"]]
+            self.assertEqual(len(ids), 57)
+            self.assertEqual(ids, sorted(set(ids), reverse=True))
+            ultima = self.cliente.get("/api/correos?pagina=9999").get_json()
+            self.assertEqual((ultima["pagina"], len(ultima["correos"])), (12, 2))
+            self.assertEqual(ultima["correos"][-1]["resultado"], "ERROR")
+            for tamano in (5, 25, 50, 100, 500, 1000):
+                r = self.cliente.get("/api/correos?por_pagina=%d" % tamano).get_json()
+                self.assertEqual((r["por_pagina"], len(r["correos"])), (tamano, min(57, tamano)))
+            for consulta in ("pagina=x", "por_pagina=x", "pagina=1.5"):
+                self.assertEqual(self.cliente.get("/api/correos?" + consulta).status_code, 400)
+            r = self.cliente.get("/api/correos?pagina=-1&por_pagina=999").get_json()
+            self.assertEqual((r["pagina"], r["por_pagina"]), (1, 5))
+        finally:
+            con.cursor().execute("TRUNCATE correos")
+            con.commit()
+            con.close()
+
+    def test_correos_sin_registros(self):
+        self.ingresar()
+        r = self.cliente.get("/api/correos?pagina=12").get_json()
+        self.assertEqual((r["ok"], r["total"], r["pagina"], r["paginas"], r["correos"]),
+                         (True, 0, 1, 1, []))
+
+    def test_filtros_por_fecha_y_hora(self):
+        con = basedatos.conectar()
+        fechas = [datetime(2020, 1, 2, 10, 14, 59), datetime(2020, 1, 2, 10, 15),
+                  datetime(2020, 1, 2, 10, 15, 59), datetime(2020, 1, 2, 10, 16),
+                  datetime(2020, 1, 2, 23, 59), datetime(2020, 1, 3, 0, 0)]
+        pesadas = [Pesada(900000 + i, i, "Filtro horario", Decimal("300"), Decimal("300"),
+                          fecha, fecha, 1, 0) for i, fecha in enumerate(fechas)]
+        try:
+            basedatos.guardar_pesadas(con, pesadas, [], datetime(2020, 1, 3))
+            self.ingresar()
+
+            def consultar(consulta):
+                return self.cliente.get("/api/pesadas?producto=Filtro+horario&" + consulta).get_json()
+
+            r = consultar("desde=2020-01-02T10:15&hasta=2020-01-02T10:15")
+            self.assertEqual(r["total"], 2)  # incluye los segundos del último minuto
+            self.assertEqual({f["ID"] for f in r["filas"]}, {900001, 900002})
+            self.assertEqual(consultar("desde=2020-01-02T10:15&hasta=2020-01-02T10:15&id=900001")["total"], 1)
+            self.assertEqual(consultar("desde=2020-01-02T23:59&hasta=2020-01-03T00:00")["total"], 2)
+            self.assertEqual(consultar("desde=2020-01-02&hasta=2020-01-02")["total"], 5)
+            self.assertEqual(consultar("hasta=2020-01-02T10:15")["total"], 3)
+            self.assertEqual(consultar("desde=2020-01-03T00:00")["total"], 1)
+            self.assertEqual(consultar("desde=2021-01-01T00:00")["total"], 0)
+            for consulta in ("desde=2020-01-02T10:15&hasta=2020-01-02T10:15",
+                             "desde=2020-01-02T23:59&hasta=2020-01-03T00:00",
+                             "desde=2020-01-02&hasta=2020-01-02", "id=900001", "desde=2021-01-01T00:00"):
+                esperados = [f["ID"] for f in self.cliente.get(
+                    "/api/pesadas?producto=Filtro+horario&por_pagina=1000&" + consulta).get_json()["filas"]]
+                exportados = self.excel_ids("producto=Filtro+horario&" + consulta)
+                self.assertEqual(exportados, esperados)
+            for consulta in ("desde=2020-01-02T25:00", "hasta=2020-01-02T10:99",
+                             "desde=2020-01-03T00:00&hasta=2020-01-02T10:15"):
+                r = self.cliente.get("/api/pesadas?" + consulta)
+                self.assertEqual(r.status_code, 400)
+                self.assertIn("Fecha", r.get_json()["error"])
+        finally:
+            con.cursor().execute("DELETE FROM pesadas WHERE Producto = 'Filtro horario'")
+            con.commit()
+            con.close()
+
+    def excel_ids(self, consulta):
+        r = self.cliente.get("/api/pesadas/excel?" + consulta)
+        try:
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.mimetype, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            self.assertIn(".xlsx", r.headers["Content-Disposition"])
+            self.assertEqual(r.headers["Cache-Control"], "no-store")
+            with ZipFile(io.BytesIO(r.get_data())) as libro:
+                hoja = ET.fromstring(libro.read("xl/worksheets/sheet1.xml"))
+                ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+                filas = hoja.findall("s:sheetData/s:row", ns)[1:]
+                return [int(f.find("s:c[@r='B%s']/s:v" % f.get("r"), ns).text) for f in filas]
+        finally:
+            r.close()
+
+    def test_excel_toda_la_base_requiere_confirmacion(self):
+        self.assertEqual(self.cliente.get("/api/pesadas/excel?confirmar_todo=1").status_code, 401)
+        self.ingresar()
+        for consulta in ("", "por_pagina=5", "producto=+++", "confirmar_todo=0"):
+            r = self.cliente.get("/api/pesadas/excel?" + consulta)
+            self.assertEqual(r.status_code, 400)
+            self.assertIn("Confirma", r.get_json()["error"])
+        ids = self.excel_ids("confirmar_todo=1&por_pagina=5&pagina=2")
+        self.assertEqual(len(ids), 250)  # exporta todo, no solo la página visible
+        self.assertEqual(len(set(ids)), 250)
+
+    def test_excel_filtros_y_errores(self):
+        self.ingresar()
+        r = self.cliente.get("/api/pesadas?por_pagina=1000").get_json()
+        fila = r["filas"][0]
+        self.assertEqual(self.excel_ids("id=%d" % fila["ID"]), [fila["ID"]])
+        self.assertEqual(self.excel_ids("producto=NO-EXISTE-ESTE-PRODUCTO"), [])
+        self.assertEqual(self.excel_ids("producto=%27%20OR%201%3D1%20--"), [])
+        for consulta in ("id=x", "desde=2026-02-30T09:00", "hasta=2026-10-19T25:00",
+                         "desde=2026-10-20T10:00&hasta=2026-10-19T10:00"):
+            self.assertEqual(self.cliente.get("/api/pesadas/excel?" + consulta).status_code, 400)
 
     def csrf(self):
         with self.cliente.session_transaction() as sesion:

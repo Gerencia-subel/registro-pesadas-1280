@@ -237,6 +237,20 @@ def correos(con, limite=10):
     return filas
 
 
+def listar_correos(con, pagina=1, por_pagina=5):
+    """Historial completo de correos, del más reciente al más antiguo, por páginas."""
+    cur = con.cursor(MySQLdb.cursors.DictCursor)
+    cur.execute("SELECT COUNT(*) AS n FROM correos")
+    cantidad = int(cur.fetchone()["n"])
+    paginas = max(1, (cantidad + por_pagina - 1) // por_pagina)
+    pagina = min(max(1, int(pagina)), paginas)
+    cur.execute("SELECT * FROM correos ORDER BY nro DESC LIMIT %s OFFSET %s",
+                (int(por_pagina), (pagina - 1) * int(por_pagina)))
+    filas = list(cur.fetchall())
+    con.commit()
+    return filas, cantidad, pagina
+
+
 def tomar_candado_correo(con):
     """Evita que dos procesos envíen el mismo tramo a la vez. True si se obtuvo."""
     cur = con.cursor()
@@ -335,14 +349,14 @@ def resumen(con):
             "ultimo_correo": ultimo_correo[0] if ultimo_correo else None, "config": config(con)}
 
 
-def _filtros(desde=None, hasta=None, producto=None, id_ctrl=None):
+def _filtros(desde=None, hasta=None, producto=None, id_ctrl=None, hasta_exclusivo=False):
     condiciones, argumentos = [], []
     if desde:
         condiciones.append("FechaI >= %s")
         argumentos.append(desde)
     if hasta:
         condiciones.append("FechaI < %s")
-        argumentos.append(hasta + timedelta(days=1))
+        argumentos.append(hasta if hasta_exclusivo else hasta + timedelta(days=1))
     if producto:
         texto = producto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         condiciones.append("Producto LIKE %s")
@@ -353,9 +367,10 @@ def _filtros(desde=None, hasta=None, producto=None, id_ctrl=None):
     return (" WHERE " + " AND ".join(condiciones) if condiciones else ""), argumentos
 
 
-def listar(con, desde=None, hasta=None, producto=None, id_ctrl=None, pagina=1, por_pagina=100):
-    """Pesadas de la más reciente a la más antigua. Devuelve (filas, total con filtros)."""
-    donde, argumentos = _filtros(desde, hasta, producto, id_ctrl)
+def listar(con, desde=None, hasta=None, producto=None, id_ctrl=None, pagina=1, por_pagina=100,
+           hasta_exclusivo=False):
+    """Pesadas de la más reciente a la más antigua. Hasta incluye el día salvo hasta_exclusivo."""
+    donde, argumentos = _filtros(desde, hasta, producto, id_ctrl, hasta_exclusivo)
     cur = con.cursor(MySQLdb.cursors.DictCursor)
     cur.execute("SELECT COUNT(*) AS n FROM pesadas" + donde, argumentos)
     cantidad = int(cur.fetchone()["n"])
@@ -380,6 +395,19 @@ def recorrer(con, ultimas=None):
     try:
         for fila in cur:
             yield fila
+    finally:
+        cur.close()
+        con.commit()
+
+
+def exportar_pesadas(con, desde=None, hasta=None, producto=None, id_ctrl=None, hasta_exclusivo=False):
+    """Todas las coincidencias, en el mismo orden que la web, sin límite de página."""
+    donde, argumentos = _filtros(desde, hasta, producto, id_ctrl, hasta_exclusivo)
+    cur = con.cursor(MySQLdb.cursors.SSDictCursor)
+    cur.execute("SELECT nro, %s, guardado_en, actualizado_en, correo FROM pesadas%s "
+                "ORDER BY FechaI DESC, nro DESC" % (", ".join(COLUMNAS_PESADA), donde), argumentos)
+    try:
+        yield from cur
     finally:
         cur.close()
         con.commit()

@@ -53,8 +53,8 @@
 
 <main>
   <form id="filtros" class="filtros">
-    <div class="campo"><label for="desde">Desde (fecha de inicio)</label><input type="date" id="desde" name="desde"></div>
-    <div class="campo"><label for="hasta">Hasta (fecha de inicio)</label><input type="date" id="hasta" name="hasta"></div>
+    <div class="campo"><label for="desde">Desde (fecha y hora de inicio)</label><input type="datetime-local" id="desde" name="desde" step="60"></div>
+    <div class="campo"><label for="hasta">Hasta (fecha y hora de inicio)</label><input type="datetime-local" id="hasta" name="hasta" step="60"></div>
     <div class="campo ancho"><label for="producto">Producto</label><input id="producto" name="producto" maxlength="60" placeholder="Parte del nombre"></div>
     <div class="campo"><label for="id">ID</label><input id="id" name="id" inputmode="numeric" pattern="[0-9]*" maxlength="10"></div>
     <div class="campo"><label for="por_pagina">Filas por página</label>
@@ -65,6 +65,7 @@
     <div class="botones">
       <button type="submit" class="primario">Buscar</button>
       <button type="button" id="limpiar">Limpiar</button>
+      <button type="button" id="exportar-excel">Exportar a Excel</button>
     </div>
   </form>
 
@@ -89,9 +90,18 @@
     <span id="pagina-texto"></span>
     <button type="button" id="siguiente">Siguiente</button>
   </nav>
-  <details class="correos" id="correos-caja">
-    <summary>Correos enviados</summary>
-    <div class="tabla-caja">
+  <section class="correos" aria-labelledby="titulo-correos">
+    <div class="correos-cabecera">
+      <h2 id="titulo-correos">Correos enviados</h2>
+      <div class="campo">
+        <label for="correos-por-pagina">Filas por página</label>
+        <select id="correos-por-pagina">
+          {% for t in tamanos %}<option value="{{ t }}"{% if t == 5 %} selected{% endif %}>{{ t }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <p class="mensaje" id="correos-mensaje" role="status"></p>
+    <div class="tabla-caja" tabindex="0" aria-label="Correos enviados">
       <table>
         <thead>
           <tr>
@@ -102,7 +112,12 @@
         <tbody id="correos-filas"><tr><td colspan="8" class="vacio">Cargando…</td></tr></tbody>
       </table>
     </div>
-  </details>
+    <nav class="paginas" aria-label="Páginas de correos">
+      <button type="button" id="correos-anterior" disabled>Anterior</button>
+      <span id="correos-pagina-texto"></span>
+      <button type="button" id="correos-siguiente" disabled>Siguiente</button>
+    </nav>
+  </section>
   <p class="version">Versión {{ version }}</p>
 </main>
 <script src="{{ url_for('static', filename='app.js') }}"></script>

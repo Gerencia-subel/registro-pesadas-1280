@@ -14,10 +14,10 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, jsonify, redirect, render_template, request, send_file, session, url_for
 from werkzeug.security import check_password_hash
 
-from . import VERSION, acciones, basedatos, comunicacion, correo, formato
+from . import VERSION, acciones, basedatos, comunicacion, correo, excel, formato
 from .basedatos import ErrorBase
 from .horario import leer_fecha, minutos_config
 from .reloj import ahora
@@ -54,14 +54,39 @@ class Intentos:
             self._datos.pop(origen, None)
 
 
-def _fecha_param(nombre):
+def _fecha_param(nombre, limite_superior=False):
     valor = (request.args.get(nombre) or "").strip()
     if not valor:
         return None
+    # Se conservan las consultas antiguas por día completo. Con hora, se incluye
+    # todo el minuto elegido en Hasta (también los segundos de ese minuto).
+    formato_fecha = "%Y-%m-%dT%H:%M" if "T" in valor else "%Y-%m-%d"
     try:
-        return datetime.strptime(valor, "%Y-%m-%d")
+        momento = datetime.strptime(valor, formato_fecha)
+        if limite_superior:
+            momento += timedelta(minutes=1) if "T" in valor else timedelta(days=1)
+        return momento
+    except (ValueError, OverflowError):
+        raise ValueError("Fecha u hora no válida: %s" % valor)
+
+
+def _paginacion_param():
+    pagina = max(1, int(request.args.get("pagina") or 1))
+    por_pagina = int(request.args.get("por_pagina") or 5)
+    return pagina, por_pagina if por_pagina in TAMANOS else 5
+
+
+def _filtros_pesadas_param():
+    desde, hasta = _fecha_param("desde"), _fecha_param("hasta", limite_superior=True)
+    if desde and hasta and desde >= hasta:
+        raise ValueError("Fecha y hora Desde deben ser anteriores o iguales a Hasta.")
+    producto = (request.args.get("producto") or "").strip()[:60] or None
+    id_texto = (request.args.get("id") or "").strip()
+    try:
+        id_ctrl = int(id_texto) if id_texto else None
     except ValueError:
-        raise ValueError("Fecha no válida: %s" % valor)
+        raise ValueError("El ID debe ser un número.")
+    return dict(desde=desde, hasta=hasta, producto=producto, id_ctrl=id_ctrl, hasta_exclusivo=True)
 
 
 def _num(valor):
@@ -234,20 +259,14 @@ def crear_app(ajustes, conectar=basedatos.conectar):
     @app.get("/api/pesadas")
     def api_pesadas():
         try:
-            desde, hasta = _fecha_param("desde"), _fecha_param("hasta")
-            producto = (request.args.get("producto") or "").strip()[:60] or None
-            id_texto = (request.args.get("id") or "").strip()
-            id_ctrl = int(id_texto) if id_texto else None
-            pagina = max(1, int(request.args.get("pagina") or 1))
-            por_pagina = int(request.args.get("por_pagina") or 5)
-            if por_pagina not in TAMANOS:
-                por_pagina = 5
+            filtros = _filtros_pesadas_param()
+            pagina, por_pagina = _paginacion_param()
         except ValueError as e:
-            mensaje = str(e) if str(e).startswith("Fecha") else "El ID debe ser un número."
+            mensaje = str(e) if str(e).startswith(("Fecha", "El ID")) else "La página y las filas por página deben ser números enteros."
             return jsonify({"ok": False, "error": mensaje}), 400
 
         def hacer(con):
-            filas, cantidad = basedatos.listar(con, desde, hasta, producto, id_ctrl, pagina, por_pagina)
+            filas, cantidad = basedatos.listar(con, pagina=pagina, por_pagina=por_pagina, **filtros)
             paginas = max(1, (cantidad + por_pagina - 1) // por_pagina)
             return jsonify({
                 "ok": True, "total": cantidad, "total_texto": formato.numero(cantidad),
@@ -262,6 +281,27 @@ def crear_app(ajustes, conectar=basedatos.conectar):
                     "correo": f["correo"] or None,
                 } for f in filas],
             })
+        return con_base(hacer)
+
+    @app.get("/api/pesadas/excel")
+    def api_excel():
+        try:
+            filtros = _filtros_pesadas_param()
+        except ValueError as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+        sin_filtros = all(filtros[k] is None for k in ("desde", "hasta", "producto", "id_ctrl"))
+        if sin_filtros and request.args.get("confirmar_todo") != "1":
+            return jsonify({"ok": False, "error": "No has seleccionado filtros. Confirma si deseas exportar toda la base de datos."}), 400
+
+        def hacer(con):
+            archivo = excel.crear(basedatos.exportar_pesadas(con, **filtros))
+            try:
+                return send_file(archivo, as_attachment=True,
+                                 download_name="pesadas_%s.xlsx" % ahora().strftime("%Y%m%d_%H%M%S"),
+                                 mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            except Exception:
+                archivo.close()
+                raise
         return con_base(hacer)
 
     @app.get("/api/descargas")
@@ -351,8 +391,17 @@ def crear_app(ajustes, conectar=basedatos.conectar):
 
     @app.get("/api/correos")
     def api_correos():
+        try:
+            pagina, por_pagina = _paginacion_param()
+        except ValueError:
+            return jsonify({"ok": False, "error": "La página y las filas por página deben ser números enteros."}), 400
+
         def hacer(con):
-            return jsonify({"ok": True, "correos": [_correo_json(c) for c in basedatos.correos(con, 50)]})
+            filas, cantidad, actual = basedatos.listar_correos(con, pagina, por_pagina)
+            return jsonify({"ok": True, "correos": [_correo_json(c) for c in filas],
+                            "total": cantidad, "total_texto": formato.numero(cantidad),
+                            "pagina": actual, "paginas": max(1, (cantidad + por_pagina - 1) // por_pagina),
+                            "por_pagina": por_pagina})
         return con_base(hacer)
 
     return app
