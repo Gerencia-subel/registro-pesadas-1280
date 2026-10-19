@@ -52,7 +52,7 @@ async function cargarResumen() {
     $("bucle-detalle").className = "detalle " + (r.bucle.servicio_ok ? "" : "estado-error");
   } else {
     texto($("bucle"), "Detenido");
-    texto($("bucle-detalle"), "Para iniciarlo: bucle 5");
+    texto($("bucle-detalle"), "Se activa en Configuración");
     $("bucle-detalle").className = "detalle";
   }
   const c = r.correo;
@@ -69,7 +69,7 @@ async function cargarResumen() {
     $("correo-detalle").className = "detalle " + (!c.servicio_ok || fallo ? "estado-error" : "");
   } else {
     texto($("correo"), "Detenido");
-    texto($("correo-detalle"), "Para iniciarlo: correo 5");
+    texto($("correo-detalle"), "Se activa en Configuración");
     $("correo-detalle").className = "detalle";
   }
   texto($("controlador"), r.controlador);

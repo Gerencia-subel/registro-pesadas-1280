@@ -6,6 +6,7 @@ Se usa un servidor SMTP falso en la misma máquina: no se envía nada a internet
 import contextlib
 import csv
 import io
+import json
 import os
 import unittest
 from datetime import datetime
@@ -15,7 +16,7 @@ from unittest import mock
 import MySQLdb
 
 import ayuda
-from registro1280 import basedatos, comandos, correo
+from registro1280 import acciones, basedatos, comandos, correo
 from registro1280.controlador import ErrorControlador, leer_pesadas
 from registro1280.envio import ServicioCorreo, siguiente_envio
 from simulador_1280 import Simulador
@@ -59,10 +60,18 @@ class Formatos(unittest.TestCase):
         datos = correo.armar_csv(filas)
         self.assertTrue(datos.startswith(b"\xef\xbb\xbf"))      # UTF-8 con BOM: Excel muestra bien las tildes
         lineas = list(csv.reader(io.StringIO(datos.decode("utf-8-sig"))))
-        self.assertEqual(lineas[0], ["ID", "cor", "Producto", "Peso", "Acum", "FechaI", "FechaF", "Turno", "Estado"])
-        self.assertEqual(lineas[1], ["188755", "77", "Sapolio Floral, Limón", "302.95", "22559.85",
-                                     "10/01/2026 01:08", "10/01/2026 01:09", "2", "0"])
+        self.assertEqual(lineas[0], ["ID", "Producto", "cor", "Peso", "Acumulado", "Hora inicial", "Hora fin",
+                                     "Fecha", "Turno"])
+        self.assertEqual(lineas[1], ["188755", "Sapolio Floral, Limón", "77", "302.95", "22559.85",
+                                     "01:08", "01:09", "10/01/2026", "2"])
         self.assertEqual(datos.decode("utf-8-sig").count("\r\n"), 2)
+
+    def test_fecha_es_la_de_inicio(self):
+        filas = [{"ID": 1, "cor": 1, "Producto": "Granel", "Peso": Decimal("300"), "Acum": Decimal("300"),
+                  "FechaI": datetime(2026, 10, 19, 23, 59), "FechaF": datetime(2026, 10, 20, 0, 1), "Turno": 2,
+                  "Estado": 0}]
+        linea = list(csv.reader(io.StringIO(correo.armar_csv(filas).decode("utf-8-sig"))))[1]
+        self.assertEqual(linea[5:8], ["23:59", "00:01", "19/10/2026"])
 
     def test_textos_del_tramo(self):
         a, b = datetime(2026, 10, 19, 9, 10), datetime(2026, 10, 19, 9, 15)
@@ -168,7 +177,8 @@ class EnvioSMTP(unittest.TestCase):
 
     def test_cuenta_en_archivo(self):
         ruta = correo.RUTA
-        self.assertFalse(correo.hay_cuenta())
+        self.assertFalse(correo.hay_cuenta({"correo_cuenta": ""}))
+        self.assertTrue(correo.hay_cuenta({"correo_cuenta": "industria@gmail.com"}))
         with self.assertRaises(correo.ErrorCorreo):
             correo.leer_cuenta()
         correo.guardar_cuenta("industria@gmail.com", "abcd efgh ijkl mnop")
@@ -176,7 +186,7 @@ class EnvioSMTP(unittest.TestCase):
             c = correo.leer_cuenta()
             self.assertEqual((c["usuario"], c["clave"], c["servidor"], c["puerto"], c["seguridad"]),
                              ("industria@gmail.com", "abcdefghijklmnop", "smtp.gmail.com", 587, "starttls"))
-            self.assertEqual(os.stat(ruta).st_mode & 0o077 & ~0o040, 0)   # nadie más puede leerla
+            self.assertEqual(os.stat(ruta).st_mode & 0o077, 0)   # nadie más puede leerla
         finally:
             os.remove(ruta)
 
@@ -195,7 +205,8 @@ class Tramos(unittest.TestCase):
         self.controlador_caido = False
         self.servicio = ServicioCorreo(leer=self.leer, reloj=self.reloj, leer_cuenta=self.smtp.cuenta,
                                        espera_reintento=0, dormir=lambda s: None, reloj_listo=lambda: True)
-        basedatos.guardar_config(self.con, correo_para="ktomasl@alicorp.com.pe", correo_copia="subelrobotin@gmail.com")
+        basedatos.guardar_config(self.con, correo_para="ktomasl@alicorp.com.pe", correo_copia="subelrobotin@gmail.com",
+                                 correo_cuenta="prueba@gmail.com")
 
     def tearDown(self):
         self.servicio._cerrar()
@@ -209,7 +220,7 @@ class Tramos(unittest.TestCase):
         return leer_pesadas(ip, puerto)
 
     def activar(self, minutos=5):
-        with mock.patch.object(comandos, "ahora", self.reloj), mock.patch.object(correo, "hay_cuenta", lambda: True):
+        with mock.patch.object(comandos, "ahora", self.reloj):
             codigo, salida, error = correr(comandos.correo, str(minutos))
         self.assertEqual(codigo, 0, error)
         return salida
@@ -421,6 +432,95 @@ class Tramos(unittest.TestCase):
         self.assertEqual(self.smtp.mensajes, [])
 
 
+class PedidosDeLaWeb(unittest.TestCase):
+    """Lo que se cambia desde la web lo hace el servicio del correo, igual que los comandos."""
+
+    def setUp(self):
+        ayuda.preparar_base()
+        self.reloj = ayuda.RelojFalso(datetime(2026, 10, 19, 9, 12, 40))
+        self.sim = Simulador(iniciales=50, reloj=self.reloj)
+        self.smtp = SMTPFalso()
+        self.con = basedatos.conectar()
+        ayuda.con_simulador(self.con, self.sim)
+        self.probadas = []
+        self.servicio = ServicioCorreo(reloj=self.reloj, leer_cuenta=self.smtp.cuenta, espera_reintento=0,
+                                       dormir=lambda s: None, reloj_listo=lambda: True,
+                                       probar_cuenta=self.probadas.append)
+
+    def tearDown(self):
+        self.servicio._cerrar()
+        self.sim.cerrar()
+        self.smtp.cerrar()
+        self.con.close()
+        if os.path.exists(correo.RUTA):
+            os.remove(correo.RUTA)
+
+    def pedir(self, tipo, datos="", hace=0):
+        from datetime import timedelta
+        nro = basedatos.crear_pedido(self.con, tipo, datos, self.reloj() - timedelta(seconds=hace), "10.0.0.5")
+        self.servicio.vuelta()
+        p = basedatos.pedido(self.con, nro)
+        return p["estado"], p["resultado"]
+
+    def test_bucle_y_controlador(self):
+        estado, texto = self.pedir("bucle", "3")
+        self.assertEqual((estado, basedatos.config(self.con)["bucle_activo"]), ("OK", "1"))
+        self.assertIn("cada 3 minutos", texto)
+        self.assertEqual(self.pedir("bucle", "detener")[0], "OK")
+        self.assertEqual(basedatos.config(self.con)["bucle_activo"], "0")
+        self.assertEqual(self.pedir("bucle", "cero")[0], "ERROR")
+        estado, texto = self.pedir("controlador_probar")
+        self.assertIn("V2.03.01", texto)
+        estado, texto = self.pedir("guardar")
+        self.assertIn("Total en la base: 50 pesadas", texto)
+        self.assertEqual(basedatos.descargas(self.con, 1)[0]["origen"], "web")
+        self.assertEqual(self.pedir("controlador", "999.1.1.1 10001")[0], "ERROR")
+        estado, texto = self.pedir("controlador", "10.30.211.141 10001")
+        self.assertEqual((estado, basedatos.config(self.con)["ip"]), ("OK", "10.30.211.141"))
+
+    def test_correo_completo_desde_la_web(self):
+        estado, texto = self.pedir("correo", "5")
+        self.assertEqual(estado, "ERROR")
+        self.assertIn("sudo correo cuenta", texto)
+        estado, texto = self.pedir("correo_cuenta", json.dumps({"usuario": "prueba@gmail.com",
+                                                                "clave": "abcd efgh ijkl mnop"}))
+        self.assertEqual(estado, "OK", texto)
+        self.assertEqual(correo.leer_cuenta()["clave"], "abcdefghijklmnop")
+        self.assertEqual(basedatos.config(self.con)["correo_cuenta"], "prueba@gmail.com")
+        self.assertEqual(self.probadas[0]["usuario"], "prueba@gmail.com")
+        cur = self.con.cursor()
+        cur.execute("SELECT datos FROM pedidos WHERE tipo = 'correo_cuenta'")
+        self.assertEqual(cur.fetchall(), (("",),))                    # la contraseña no queda en la base
+        self.assertEqual(self.pedir("correo_para", "no-es-correo")[0], "ERROR")
+        self.assertEqual(self.pedir("correo_para", "ktomasl@alicorp.com.pe, subelrobotin@gmail.com")[0], "OK")
+        self.assertEqual(self.pedir("correo_copia", "")[1], "Sin copia.")
+        estado, texto = self.pedir("correo", "5")
+        self.assertEqual(estado, "OK", texto)
+        self.assertIn("Primer envío a las 09:15", texto)
+        estado, texto = self.pedir("correo", "10")
+        self.assertIn("Intervalo cambiado a 10 minutos", texto)
+        estado, texto = self.pedir("correo_probar", "otra@empresa.com")
+        self.assertEqual(estado, "OK", texto)
+        self.assertEqual(self.smtp.mensajes[0]["para"], ["otra@empresa.com"])
+        self.assertEqual(self.pedir("correo", "detener")[0], "OK")
+        self.assertEqual(basedatos.config(self.con)["correo_activo"], "0")
+
+    def test_cuenta_rechazada_no_se_guarda(self):
+        def rechazar(cuenta):
+            raise correo.ErrorCorreo("Gmail rechazó la cuenta", reintentar=False)
+        self.servicio.probar_cuenta = rechazar
+        estado, texto = self.pedir("correo_cuenta", json.dumps({"usuario": "prueba@gmail.com", "clave": "x" * 16}))
+        self.assertEqual(estado, "ERROR")
+        self.assertIn("No se guardó la cuenta", texto)
+        self.assertFalse(os.path.exists(correo.RUTA))
+
+    def test_pedido_viejo_no_se_hace(self):
+        estado, texto = self.pedir("bucle", "5", hace=1200)
+        self.assertEqual(estado, "ERROR")
+        self.assertIn("No se atendió a tiempo", texto)
+        self.assertEqual(basedatos.config(self.con)["bucle_activo"], "0")
+
+
 class ComandoCorreo(unittest.TestCase):
     def setUp(self):
         ayuda.preparar_base()
@@ -438,7 +538,7 @@ class ComandoCorreo(unittest.TestCase):
         codigo, _, error = correr(comandos.correo, "5")
         self.assertEqual(codigo, 1)
         self.assertIn("sudo correo cuenta", error)
-        correo.guardar_cuenta("industria@gmail.com", "abcdefghijklmnop")
+        basedatos.guardar_config(basedatos.conectar(), correo_cuenta="industria@gmail.com")
         codigo, _, error = correr(comandos.correo, "5")
         self.assertIn("correo para", error)
         codigo, _, error = correr(comandos.correo, "para", "no-es-correo")
@@ -469,9 +569,9 @@ class ComandoCorreo(unittest.TestCase):
         self.assertEqual(codigo, 1)
 
     def test_no_se_activa_si_no_responde_el_controlador(self):
-        correo.guardar_cuenta("industria@gmail.com", "abcdefghijklmnop")
+        basedatos.guardar_config(basedatos.conectar(), correo_cuenta="industria@gmail.com")
         correr(comandos.correo, "para", "ktomasl@alicorp.com.pe")
-        with mock.patch.object(comandos, "guardar_ahora", side_effect=ErrorControlador("El controlador no respondió")):
+        with mock.patch.object(acciones, "guardar_ahora", side_effect=ErrorControlador("El controlador no respondió")):
             codigo, _, error = correr(comandos.correo, "5")
         self.assertEqual(codigo, 1)
         self.assertIn("No se activó el correo", error)
@@ -516,7 +616,7 @@ class ComandoCorreo(unittest.TestCase):
 
     @unittest.skipUnless(os.geteuid() == 0, "necesita sudo")
     def test_vaciar_base_detiene_el_correo(self):
-        correo.guardar_cuenta("industria@gmail.com", "abcdefghijklmnop")
+        basedatos.guardar_config(basedatos.conectar(), correo_cuenta="industria@gmail.com")
         correr(comandos.correo, "para", "ktomasl@alicorp.com.pe")
         correr(comandos.correo, "5")
         with mock.patch("builtins.input", return_value="BORRAR"):

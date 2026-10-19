@@ -101,6 +101,8 @@ GRANT SELECT, INSERT, UPDATE, LOCK TABLES, SHOW VIEW ON registro1280.* TO 'regis
 GRANT DELETE ON registro1280.descargas TO 'registro1280'@'localhost';
 CREATE USER IF NOT EXISTS 'registro1280web'@'localhost' IDENTIFIED VIA unix_socket;
 GRANT SELECT ON registro1280.* TO 'registro1280web'@'localhost';
+-- La web solo agrega pedidos (cambios de configuración); los hace el servicio del correo.
+GRANT INSERT ON registro1280.pedidos TO 'registro1280web'@'localhost';
 SQL
 if [ -n "$USUARIO_PI" ] && [ "$USUARIO_PI" != "root" ] && [[ "$USUARIO_PI" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then
   mariadb -e "CREATE USER IF NOT EXISTS '$USUARIO_PI'@'localhost' IDENTIFIED VIA unix_socket;
@@ -130,9 +132,15 @@ chmod 755 "$ETC"
 (cd "$DESTINO" && "$PY" -m registro1280 preparar-web "$PUERTO" >/dev/null)
 chown root:registro1280web "$INI"
 chmod 640 "$INI"
-if [ -f "$ETC/correo.ini" ]; then   # cuenta de Gmail: solo root y el servicio del correo
-  chown root:registro1280 "$ETC/correo.ini"
-  chmod 640 "$ETC/correo.ini"
+# Cuenta de Gmail: en /var/lib/registro1280 (la puede cambiar el servicio del correo cuando
+# se pide desde la web). Antes de la versión 1.3 estaba en /etc/registro1280.
+if [ -f "$ETC/correo.ini" ] && [ ! -f "$DATOS/correo.ini" ]; then
+  mv "$ETC/correo.ini" "$DATOS/correo.ini"
+fi
+rm -f "$ETC/correo.ini"
+if [ -f "$DATOS/correo.ini" ]; then
+  chown registro1280:registro1280 "$DATOS/correo.ini"
+  chmod 600 "$DATOS/correo.ini"
 fi
 if [ -d "$ORIGEN/.git" ] && command -v git >/dev/null; then
   git -C "$ORIGEN" rev-parse HEAD > "$ETC/version_instalada" 2>/dev/null || true

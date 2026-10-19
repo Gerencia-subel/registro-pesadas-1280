@@ -1,15 +1,15 @@
 """Correo por Gmail (SMTP) con el CSV de las pesadas.
 
 La cuenta que envía (correo de Gmail y contraseña de aplicación) está en
-/etc/registro1280/correo.ini, que solo pueden leer root y el servicio del correo:
-no se guarda en la base (la web puede leer la base) ni en GitHub.
+/var/lib/registro1280/correo.ini, que solo pueden leer root y el servicio del correo:
+no se guarda en la base ni en GitHub. La web la cambia mandando un pedido al servicio.
 """
 
 import configparser
 import csv
-import grp
 import io
 import os
+import pwd
 import re
 import smtplib
 import socket
@@ -18,11 +18,11 @@ from decimal import Decimal
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
 
-RUTA = os.environ.get("REGISTRO1280_CORREO_INI", "/etc/registro1280/correo.ini")
+RUTA = os.environ.get("REGISTRO1280_CORREO_INI", "/var/lib/registro1280/correo.ini")
 SERVIDOR = "smtp.gmail.com"
 PUERTO = 587
 NOMBRE = "Registro de pesadas 1280"
-COLUMNAS_CSV = ("ID", "cor", "Producto", "Peso", "Acum", "FechaI", "FechaF", "Turno", "Estado")
+COLUMNAS_CSV = ("ID", "Producto", "cor", "Peso", "Acumulado", "Hora inicial", "Hora fin", "Fecha", "Turno")
 _DIRECCION = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
                         r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$")
 
@@ -51,8 +51,9 @@ def direcciones(texto):
 
 
 # ------------------------------------------------------------------ cuenta
-def hay_cuenta(ruta=None):
-    return os.path.exists(ruta or RUTA)
+def hay_cuenta(cfg):
+    """Si ya se configuró la cuenta (la dirección queda anotada en la configuración)."""
+    return bool((cfg.get("correo_cuenta") or "").strip())
 
 
 def leer_cuenta(ruta=None):
@@ -76,7 +77,7 @@ def leer_cuenta(ruta=None):
 
 
 def guardar_cuenta(usuario, clave, ruta=None):
-    """Escribe el archivo de la cuenta: dueño root, lo lee solo el grupo registro1280 (el servicio)."""
+    """Escribe el archivo de la cuenta: solo lo pueden leer root y el servicio (usuario registro1280)."""
     ruta = ruta or RUTA
     ini = configparser.ConfigParser(interpolation=None)
     ini["correo"] = {"usuario": usuario, "clave": clave.replace(" ", ""), "servidor": SERVIDOR,
@@ -89,10 +90,11 @@ def guardar_cuenta(usuario, clave, ruta=None):
                 "# Para cambiarla: sudo correo cuenta\n")
         ini.write(f)
     try:
-        os.chown(temporal, 0, grp.getgrnam("registro1280").gr_gid)
-        os.chmod(temporal, 0o640)
+        dueno = pwd.getpwnam("registro1280")
+        os.chown(temporal, dueno.pw_uid, dueno.pw_gid)
     except (KeyError, PermissionError):
-        os.chmod(temporal, 0o600)
+        pass
+    os.chmod(temporal, 0o600)
     os.replace(temporal, ruta)
 
 
@@ -114,18 +116,25 @@ def numero_csv(valor):
     return texto
 
 
+def hora_csv(momento):
+    return momento.strftime("%H:%M") if momento else ""
+
+
 def fecha_csv(momento):
-    return momento.strftime("%d/%m/%Y %H:%M") if momento else ""
+    return momento.strftime("%d/%m/%Y") if momento else ""
 
 
 def armar_csv(filas):
-    """Filas (dict con las columnas del controlador) -> bytes del CSV (UTF-8 con BOM para Excel)."""
+    """Filas (dict con las columnas del controlador) -> bytes del CSV (UTF-8 con BOM para Excel).
+
+    9 columnas: ID, Producto, cor, Peso, Acumulado, Hora inicial, Hora fin, Fecha (la de inicio), Turno.
+    """
     salida = io.StringIO()
     escritor = csv.writer(salida, lineterminator="\r\n")
     escritor.writerow(COLUMNAS_CSV)
     for f in filas:
-        escritor.writerow([f["ID"], f["cor"], f["Producto"], numero_csv(f["Peso"]), numero_csv(f["Acum"]),
-                           fecha_csv(f["FechaI"]), fecha_csv(f["FechaF"]), f["Turno"], f["Estado"]])
+        escritor.writerow([f["ID"], f["Producto"], f["cor"], numero_csv(f["Peso"]), numero_csv(f["Acum"]),
+                           hora_csv(f["FechaI"]), hora_csv(f["FechaF"]), fecha_csv(f["FechaI"]), f["Turno"]])
     return salida.getvalue().encode("utf-8-sig")
 
 

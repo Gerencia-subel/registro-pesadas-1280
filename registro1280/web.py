@@ -1,11 +1,15 @@
-"""Página web de consulta (solo lectura) del registro de pesadas.
+"""Página web del registro de pesadas: consulta de pesadas y configuración.
 
-Corre como el usuario de Linux registro1280web, que en la base solo tiene permiso
-de lectura: aunque alguien lo intentara, desde la web no se puede editar ni borrar.
+Corre como el usuario de Linux registro1280web, que en la base solo puede leer y agregar
+pedidos: las pesadas no se pueden editar ni borrar desde la web. Los cambios de
+configuración (correo, bucle, controlador) y "guardar ahora" se piden con un pedido que
+hace el servicio del correo, igual que los comandos de la terminal.
 """
 
 import hmac
+import json
 import os
+import secrets
 import threading
 import time
 from datetime import datetime, timedelta
@@ -13,8 +17,9 @@ from datetime import datetime, timedelta
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash
 
-from . import VERSION, basedatos, correo, formato
+from . import VERSION, acciones, basedatos, correo, formato
 from .basedatos import ErrorBase
+from .horario import leer_fecha, minutos_config
 from .reloj import ahora
 
 INTENTOS_MAXIMOS = 5
@@ -79,10 +84,10 @@ def _hora_config(texto):
 
 
 def _correo_json(c):
-    tramo = correo.rango(c["desde"], c["hasta"]) if c["desde"] and c["hasta"] else ""
+    tramo = correo.rango(c["desde"], c["hasta"]) if c["desde"] and c["hasta"] else "Prueba (sin tramo)"
     return {"nro": c["nro"], "enviado_en": formato.fecha_segundos(c["enviado_en"]), "tipo": c["tipo"],
             "tramo": tramo, "pesadas": c["pesadas"], "resultado": c["resultado"],
-            "archivo": c["archivo"] or "", "detalle": correo.sin_direcciones(c["detalle"])}
+            "archivo": c["archivo"] or "", "detalle": c["detalle"] or ""}
 
 
 def crear_app(ajustes, conectar=basedatos.conectar):
@@ -114,7 +119,14 @@ def crear_app(ajustes, conectar=basedatos.conectar):
 
     @app.before_request
     def proteger():
-        if request.endpoint in ("ingresar", "static") or autorizado():
+        if request.endpoint in ("ingresar", "static"):
+            return None
+        if autorizado():
+            if "csrf" not in session:
+                session["csrf"] = secrets.token_hex(16)
+            if request.method == "POST" and not hmac.compare_digest(
+                    request.headers.get("X-CSRF-Token", ""), session["csrf"]):
+                return jsonify({"ok": False, "error": "La página está desactualizada. Recargarla."}), 403
             return None
         if request.path.startswith("/api/"):
             return jsonify({"ok": False, "error": "La sesión terminó. Volver a ingresar."}), 401
@@ -144,6 +156,7 @@ def crear_app(ajustes, conectar=basedatos.conectar):
                 session.clear()
                 session.permanent = True
                 session["usuario"] = usuario
+                session["csrf"] = secrets.token_hex(16)
                 return redirect(url_for("inicio"))
             else:
                 intentos.fallo(origen)
@@ -160,6 +173,11 @@ def crear_app(ajustes, conectar=basedatos.conectar):
     def inicio():
         return render_template("inicio.html", usuario=session.get("usuario"), version=VERSION,
                                tamanos=TAMANOS)
+
+    @app.get("/configuracion")
+    def configuracion():
+        return render_template("configuracion.html", usuario=session.get("usuario"), version=VERSION,
+                               csrf=session.get("csrf", ""))
 
     def con_base(funcion):
         try:
@@ -251,6 +269,61 @@ def crear_app(ajustes, conectar=basedatos.conectar):
                 "nuevas": d["nuevas"], "actualizadas": d["actualizadas"], "total": d["total"],
                 "detalle": d["detalle"] or "",
             } for d in basedatos.descargas(con, 20)]})
+        return con_base(hacer)
+
+    @app.get("/api/configuracion")
+    def api_configuracion():
+        def hacer(con):
+            cfg = basedatos.config(con)
+            return jsonify({
+                "ok": True,
+                "ahora": formato.fecha(ahora()),
+                "controlador": {"ip": cfg.get("ip", ""), "puerto": cfg.get("puerto", "")},
+                "bucle": {"activo": cfg.get("bucle_activo") == "1", "minutos": cfg.get("bucle_minutos") or "5",
+                          "servicio_ok": _vivo(cfg.get("latido"))},
+                "correo": {
+                    "activo": cfg.get("correo_activo") == "1", "minutos": str(minutos_config(cfg)),
+                    "servicio_ok": _vivo(cfg.get("correo_latido")),
+                    "cuenta": cfg.get("correo_cuenta", ""), "para": cfg.get("correo_para", ""),
+                    "copia": cfg.get("correo_copia", ""),
+                    "proximo": formato.fecha(leer_fecha(cfg.get("correo_proximo"))),
+                    "desde": formato.fecha(leer_fecha(cfg.get("correo_desde"))),
+                    "pendientes": basedatos.contar_pendientes(con) if cfg.get("correo_activo") == "1" else 0,
+                },
+                "pedidos": [{
+                    "nro": p["nro"], "creado": formato.fecha_segundos(p["creado"]), "origen": p["origen"],
+                    "tipo": acciones.TIPOS.get(p["tipo"], p["tipo"]), "estado": p["estado"],
+                    "resultado": p["resultado"] or "",
+                } for p in basedatos.ultimos_pedidos(con, 15)],
+            })
+        return con_base(hacer)
+
+    @app.post("/api/pedidos")
+    def api_crear_pedido():
+        cuerpo = request.get_json(silent=True) or {}
+        tipo = str(cuerpo.get("tipo") or "")
+        if tipo not in acciones.TIPOS:
+            return jsonify({"ok": False, "error": "Pedido desconocido."}), 400
+        if tipo == "correo_cuenta":
+            datos = json.dumps({"usuario": str(cuerpo.get("usuario") or "").strip(),
+                                "clave": str(cuerpo.get("clave") or "")})
+        else:
+            datos = str(cuerpo.get("datos") or "").strip()
+        if len(datos) > 1000:
+            return jsonify({"ok": False, "error": "Demasiado texto (máximo 1000 caracteres)."}), 400
+
+        def hacer(con):
+            nro = basedatos.crear_pedido(con, tipo, datos, ahora(), origen_del_pedido())
+            return jsonify({"ok": True, "nro": nro})
+        return con_base(hacer)
+
+    @app.get("/api/pedidos/<int:nro>")
+    def api_pedido(nro):
+        def hacer(con):
+            p = basedatos.pedido(con, nro)
+            if p is None:
+                return jsonify({"ok": False, "error": "No existe ese pedido."}), 404
+            return jsonify({"ok": True, "estado": p["estado"], "resultado": p["resultado"] or ""})
         return con_base(hacer)
 
     @app.get("/api/correos")

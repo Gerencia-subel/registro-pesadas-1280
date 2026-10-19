@@ -256,6 +256,54 @@ def soltar_candado_correo(con):
         pass
 
 
+# ---------------------------------------------------------------- pedidos de la web
+def crear_pedido(con, tipo, datos, creado, origen=""):
+    cur = con.cursor()
+    cur.execute("INSERT INTO pedidos (creado, origen, tipo, datos) VALUES (%s, %s, %s, %s)",
+                (creado, (origen or "")[:80], tipo[:30], (datos or "")[:1000]))
+    nro = cur.lastrowid
+    con.commit()
+    return nro
+
+
+def pedidos_pendientes(con):
+    cur = con.cursor(MySQLdb.cursors.DictCursor)
+    cur.execute("SELECT nro, creado, tipo, datos FROM pedidos WHERE estado = 'PENDIENTE' ORDER BY nro")
+    filas = list(cur.fetchall())
+    con.commit()
+    return filas
+
+
+def borrar_datos_pedido(con, nro):
+    cur = con.cursor()
+    cur.execute("UPDATE pedidos SET datos = '' WHERE nro = %s", (nro,))
+    con.commit()
+
+
+def terminar_pedido(con, nro, estado, resultado, momento):
+    cur = con.cursor()
+    cur.execute("UPDATE pedidos SET estado = %s, resultado = %s, atendido = %s WHERE nro = %s",
+                (estado, (resultado or "")[:2000], momento, nro))
+    con.commit()
+
+
+def pedido(con, nro):
+    cur = con.cursor(MySQLdb.cursors.DictCursor)
+    cur.execute("SELECT nro, creado, tipo, estado, resultado, atendido FROM pedidos WHERE nro = %s", (nro,))
+    fila = cur.fetchone()
+    con.commit()
+    return fila
+
+
+def ultimos_pedidos(con, limite=15):
+    cur = con.cursor(MySQLdb.cursors.DictCursor)
+    cur.execute("SELECT nro, creado, origen, tipo, estado, resultado, atendido FROM pedidos "
+                "ORDER BY nro DESC LIMIT %s", (int(limite),))
+    filas = list(cur.fetchall())
+    con.commit()
+    return filas
+
+
 # ---------------------------------------------------------------- consultas
 def total(con):
     cur = con.cursor()

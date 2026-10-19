@@ -1,5 +1,6 @@
 """Pruebas de la web de consulta (necesitan MariaDB)."""
 
+import json
 import unittest
 
 from werkzeug.security import generate_password_hash
@@ -98,19 +99,53 @@ class Web(unittest.TestCase):
             self.assertEqual(r["correo"]["ultimo"]["tramo"], "19/10/2026 09:10 - 09:15")
             c = self.cliente.get("/api/correos").get_json()["correos"]
             self.assertEqual((len(c), c[0]["resultado"], c[0]["tipo"]), (1, "OK", "tramo"))
-            self.assertNotIn("para", c[0])          # la web no muestra direcciones
-            self.assertEqual(c[0]["detalle"], "Gmail no aceptó: (dirección) (550)")
-            self.assertEqual(self.cliente.post("/api/correos").status_code, 405)
+            self.assertEqual(c[0]["detalle"], "Gmail no aceptó: ktomasl@alicorp.com.pe (550)")
+            self.assertEqual(self.cliente.post("/api/correos", headers={"X-CSRF-Token": self.csrf()}).status_code, 405)
         finally:
             basedatos.guardar_config(con, correo_activo="0", correo_proximo="")
             con.cursor().execute("TRUNCATE correos")
             con.close()
 
+    def csrf(self):
+        with self.cliente.session_transaction() as sesion:
+            return sesion["csrf"]
+
     def test_no_se_puede_modificar(self):
         self.ingresar()
+        self.assertEqual(self.cliente.post("/api/pesadas").status_code, 403)       # sin la ficha de la página
+        cabecera = {"X-CSRF-Token": self.csrf()}
         for metodo in ("post", "put", "delete", "patch"):
-            r = getattr(self.cliente, metodo)("/api/pesadas")
+            r = getattr(self.cliente, metodo)("/api/pesadas", headers=cabecera)
             self.assertEqual(r.status_code, 405, metodo)
+
+    def test_configuracion_y_pedidos(self):
+        con = basedatos.conectar()
+        basedatos.guardar_config(con, correo_cuenta="industria@gmail.com", correo_para="ktomasl@alicorp.com.pe")
+        try:
+            self.ingresar()
+            pagina = self.cliente.get("/configuracion").get_data(as_text=True)
+            self.assertIn("Envío por correo", pagina)
+            self.assertIn(self.csrf(), pagina)
+            r = self.cliente.get("/api/configuracion").get_json()
+            self.assertEqual((r["correo"]["cuenta"], r["correo"]["para"]), ("industria@gmail.com", "ktomasl@alicorp.com.pe"))
+            self.assertNotIn("clave", json.dumps(r))
+            cabecera = {"X-CSRF-Token": self.csrf()}
+            sin_ficha = self.cliente.post("/api/pedidos", json={"tipo": "bucle", "datos": "5"})
+            self.assertEqual(sin_ficha.status_code, 403)
+            self.assertEqual(self.cliente.post("/api/pedidos", json={"tipo": "borrar_todo"},
+                                               headers=cabecera).status_code, 400)
+            r = self.cliente.post("/api/pedidos", json={"tipo": "correo_cuenta", "usuario": "otra@gmail.com",
+                                                        "clave": "abcd efgh ijkl mnop"}, headers=cabecera).get_json()
+            self.assertTrue(r["ok"])
+            p = self.cliente.get("/api/pedidos/%d" % r["nro"]).get_json()
+            self.assertEqual(p["estado"], "PENDIENTE")
+            fila = basedatos.pedidos_pendientes(con)[0]
+            self.assertEqual((fila["tipo"], json.loads(fila["datos"])["usuario"]), ("correo_cuenta", "otra@gmail.com"))
+            self.assertEqual(self.cliente.get("/api/pedidos/999999").status_code, 404)
+        finally:
+            con.cursor().execute("TRUNCATE pedidos")
+            basedatos.guardar_config(con, correo_cuenta="", correo_para="")
+            con.close()
 
     def test_salir(self):
         self.ingresar()

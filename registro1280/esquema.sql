@@ -80,6 +80,21 @@ CREATE TABLE IF NOT EXISTS correos (
   KEY por_enviado (enviado_en)
 ) ENGINE=InnoDB;
 
+-- Pedidos de la web (cambiar la configuración, guardar ahora, probar). La web solo puede
+-- agregar pedidos; los hace el servicio del correo, igual que los comandos de la terminal.
+CREATE TABLE IF NOT EXISTS pedidos (
+  nro        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  creado     DATETIME       NOT NULL,
+  origen     VARCHAR(80)    NOT NULL DEFAULT '' COMMENT 'IP de quien lo pidió',
+  tipo       VARCHAR(30)    NOT NULL,
+  datos      VARCHAR(1000)  NOT NULL DEFAULT '' COMMENT 'Se borra al atenderlo si lleva la contraseña',
+  estado     VARCHAR(10)    NOT NULL DEFAULT 'PENDIENTE' COMMENT 'PENDIENTE, OK o ERROR',
+  resultado  VARCHAR(2000)  NULL,
+  atendido   DATETIME       NULL,
+  PRIMARY KEY (nro),
+  KEY por_estado (estado)
+) ENGINE=InnoDB;
+
 -- Configuración: IP y puerto del controlador, el bucle y el correo.
 CREATE TABLE IF NOT EXISTS configuracion (
   clave  VARCHAR(40)   NOT NULL,

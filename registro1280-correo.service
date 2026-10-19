@@ -1,5 +1,5 @@
 [Unit]
-Description=Registro de pesadas 1280 - envio por correo (Gmail) del CSV de cada tramo
+Description=Registro de pesadas 1280 - envio por correo (Gmail) y cambios pedidos desde la web
 After=network-online.target mariadb.service
 Wants=network-online.target mariadb.service
 

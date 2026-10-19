@@ -17,12 +17,13 @@ import socket
 import threading
 import time
 import traceback
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import MySQLdb
 
-from . import basedatos, correo
+from . import acciones, basedatos, correo
 from .basedatos import ErrorBase
+from .horario import leer_fecha, minutos_config, siguiente_envio, texto_fecha  # noqa: F401
 from .controlador import ErrorControlador, leer_pesadas
 from .guardado import guardar
 from .reloj import ahora
@@ -30,43 +31,7 @@ from .reloj import ahora
 registro = logging.getLogger("registro1280")
 
 LATIDO_CADA = 30
-FORMATO = "%Y-%m-%d %H:%M:%S"
-MINUTOS_DIA = 24 * 60
-
-
-def texto_fecha(momento):
-    return momento.strftime(FORMATO) if momento else ""
-
-
-def leer_fecha(texto):
-    try:
-        return datetime.strptime((texto or "").strip(), FORMATO)
-    except ValueError:
-        return None
-
-
-def minutos_config(cfg):
-    try:
-        return max(1, int(cfg.get("correo_minutos") or 5))
-    except ValueError:
-        return 5
-
-
-def siguiente_envio(despues_de, minutos, base=None):
-    """Hora del próximo envío, siempre después de "despues_de".
-
-    Si los minutos dividen el día (1, 2, 5, 10, 15, 30, 60...) los envíos caen en horas
-    redondas contadas desde las 00:00 (cada 5: 09:10, 09:15, 09:20). Si no, se cuentan
-    desde "base" (el envío anterior o la activación).
-    """
-    paso = timedelta(minutes=minutos)
-    if MINUTOS_DIA % minutos == 0:
-        medianoche = despues_de.replace(hour=0, minute=0, second=0, microsecond=0)
-        return medianoche + ((despues_de - medianoche) // paso + 1) * paso
-    inicio = (base or despues_de).replace(second=0, microsecond=0)
-    if despues_de < inicio:
-        return inicio
-    return inicio + ((despues_de - inicio) // paso + 1) * paso
+PEDIDO_VENCE = 600   # segundos: un pedido de la web que espera más que esto ya no se atiende
 
 
 def reloj_sincronizado():
@@ -100,12 +65,13 @@ def cuerpo_tramo(desde, hasta, n, archivo, aviso=""):
 class ServicioCorreo:
     def __init__(self, conectar=basedatos.conectar, leer=leer_pesadas, reloj=ahora, enviar=correo.enviar,
                  leer_cuenta=correo.leer_cuenta, espera_reintento=30, dormir=None,
-                 reloj_listo=reloj_sincronizado):
+                 reloj_listo=reloj_sincronizado, probar_cuenta=correo.probar_cuenta):
         self.conectar = conectar
         self.leer = leer
         self.reloj = reloj
         self.enviar = enviar
         self.leer_cuenta = leer_cuenta
+        self.probar_cuenta = probar_cuenta
         self.reloj_listo = reloj_listo
         self.espera_reintento = espera_reintento
         self.detener = threading.Event()
@@ -154,6 +120,7 @@ class ServicioCorreo:
             # ejemplo): se reintenta solo la anotación. Ese tramo nunca se vuelve a enviar.
             self._anotar(con)
             return 0.5
+        self.atender_pedidos(con)
         cfg = basedatos.config(con)
         activo = cfg.get("correo_activo") == "1"
         minutos = minutos_config(cfg)
@@ -198,6 +165,31 @@ class ServicioCorreo:
                                    enviado_en=r["enviado_en"], resultado="OK" if r["ok"] else "ERROR",
                                    detalle=r["detalle"] or "", **r["datos"])
         self._por_anotar = None
+
+    # ------------------------------------------------------------------
+    def atender_pedidos(self, con):
+        """Hace lo que se pidió desde la web (cambios de configuración, guardar ahora, probar)."""
+        for p in basedatos.pedidos_pendientes(con):
+            if p["tipo"] == "correo_cuenta":
+                basedatos.borrar_datos_pedido(con, p["nro"])   # la contraseña no queda en la base
+            if (self.reloj() - p["creado"]).total_seconds() > PEDIDO_VENCE:
+                basedatos.terminar_pedido(con, p["nro"], "ERROR", "No se atendió a tiempo (el servicio del correo "
+                                          "no estaba funcionando). Volver a intentar.", self.reloj())
+                continue
+            try:
+                texto = acciones.ejecutar(con, p["tipo"], p["datos"], reloj=self.reloj, leer=self.leer,
+                                          enviar=self.enviar, leer_cuenta=self.leer_cuenta,
+                                          probar_cuenta=self.probar_cuenta, dormir=self.dormir)
+                estado = "OK"
+            except acciones.ErrorAccion as e:
+                texto, estado = str(e), "ERROR"
+            except (ErrorBase, MySQLdb.Error) as e:
+                texto, estado = "Error de la base de datos: %s" % e, "ERROR"
+            except Exception as e:
+                registro.error("Pedido %s: %s", p["tipo"], traceback.format_exc())
+                texto, estado = "Error inesperado: %s" % e, "ERROR"
+            registro.info("Pedido de la web %s: %s", p["tipo"], estado)
+            basedatos.terminar_pedido(con, p["nro"], estado, texto, self.reloj())
 
     # ------------------------------------------------------------------
     def enviar_tramo(self, con, cfg, proximo, momento):
@@ -252,7 +244,8 @@ class ServicioCorreo:
                     break
         if error is None:
             registro.info("Correo enviado: %s", asunto)
-            detalle = " ".join(t for t in (no_aceptados, aviso) if t)
+            destinos = "Enviado a %s%s." % (", ".join(para), "; copia %s" % ", ".join(copia) if copia else "")
+            detalle = " ".join(t for t in (destinos, no_aceptados, aviso) if t)
             return self._resultado(con, datos, hasta, [f["nro"] for f in filas], detalle)
         return self._resultado(con, datos, hasta, None, error)
 

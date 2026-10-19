@@ -32,6 +32,6 @@ if [ "${1:-}" = "--borrar-datos" ]; then
   userdel registro1280web >/dev/null 2>&1 || true
   echo "Programa y base de datos eliminados. MariaDB queda instalado."
 else
-  echo "Programa eliminado. La base de datos registro1280, los respaldos y la configuración"
-  echo "(/etc/registro1280, incluida la cuenta de Gmail del correo) se conservan."
+  echo "Programa eliminado. La base de datos registro1280, los respaldos, la configuración"
+  echo "y la cuenta de Gmail del correo (/var/lib/registro1280/correo.ini) se conservan."
 fi

@@ -13,6 +13,10 @@
     <h1>Registro de pesadas</h1>
     <p class="sub">Indicador Rice Lake 1280 – Intradevco</p>
   </div>
+  <nav class="menu" aria-label="Secciones">
+    <a href="{{ url_for('inicio') }}" aria-current="page">Pesadas</a>
+    <a href="{{ url_for('configuracion') }}">Configuración</a>
+  </nav>
   <div class="sesion">
     <span>{{ usuario }}</span>
     <a href="{{ url_for('salir') }}">Salir</a>
@@ -36,7 +40,7 @@
     <p class="detalle" id="bucle-detalle"></p>
   </div>
   <div class="lectura">
-    <h2>Envío por correo</h2>
+    <h2><a class="enlace-config" href="{{ url_for('configuracion') }}">Envío por correo</a></h2>
     <p class="valor" id="correo">–</p>
     <p class="detalle" id="correo-detalle"></p>
   </div>
@@ -99,7 +103,7 @@
       </table>
     </div>
   </details>
-  <p class="version">Solo lectura. Versión {{ version }}</p>
+  <p class="version">Las pesadas no se pueden editar ni borrar desde la web. Versión {{ version }}</p>
 </main>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
