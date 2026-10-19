@@ -103,6 +103,9 @@ class Formatos(unittest.TestCase):
         self.assertEqual(siguiente_envio(t, 7), datetime(2026, 10, 19, 9, 19))           # 7 no divide el día
         self.assertEqual(siguiente_envio(datetime(2026, 10, 19, 9, 19, 1), 7, base=datetime(2026, 10, 19, 9, 19)),
                          datetime(2026, 10, 19, 9, 26))
+        # después de un envío se cuentan los minutos desde ese envío
+        self.assertEqual(siguiente_envio(datetime(2026, 10, 19, 15, 25, 1), 10, base=datetime(2026, 10, 19, 15, 25)),
+                         datetime(2026, 10, 19, 15, 35))
         self.assertEqual(siguiente_envio(datetime(2026, 10, 19, 12, 0), 7, base=datetime(2026, 10, 19, 9, 19)),
                          datetime(2026, 10, 19, 12, 7))                                   # 9:19 + 24 x 7
 
@@ -337,6 +340,27 @@ class Tramos(unittest.TestCase):
         asuntos = [asunto(r["mensaje"]) for r in self.smtp.mensajes]
         self.assertEqual(asuntos, ["Pesadas 19/10/2026 09:12 - 10:00 - Sin pesadas",
                                    "Pesadas 19/10/2026 10:00 - 10:05 - Sin pesadas"])
+
+    def test_cambios_de_intervalo_como_los_pidio_el_cliente(self):
+        self.reloj.t = datetime(2026, 10, 19, 15, 12, 40)
+        self.activar(5)
+        for minuto in (15, 20):
+            self.hasta(15, minuto)
+        self.hasta(15, 24)
+        salida = self.activar(10)                               # a las 15:24 se cambia a cada 10
+        self.assertIn("sale a las 15:25, como estaba programado", salida)
+        self.assertIn("el siguiente a las 15:35", salida)
+        for h, m in ((15, 25), (15, 30), (15, 35), (15, 45), (15, 55), (16, 3)):
+            self.hasta(h, m)
+        self.activar(5)                                         # a las 16:03 se cambia a cada 5
+        for h, m in ((16, 5), (16, 10), (16, 14)):
+            self.hasta(h, m)
+        self.activar(15)                                        # a las 16:14 se cambia a cada 15
+        for h, m in ((16, 15), (16, 20), (16, 30)):
+            self.hasta(h, m)
+        horas = [asunto(r["mensaje"]).split(" - ")[1] for r in self.smtp.mensajes]
+        self.assertEqual(horas, ["15:15", "15:20", "15:25", "15:35", "15:45", "15:55", "16:05", "16:10", "16:15",
+                                 "16:30"])
 
     def test_raspberry_apagada_un_rato(self):
         self.activar(5)

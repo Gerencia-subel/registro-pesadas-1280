@@ -9,7 +9,7 @@ import ipaddress
 import json
 import math
 import socket
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from . import basedatos, correo, formato
 from .basedatos import ErrorBase
@@ -150,8 +150,10 @@ def correo_activar(con, minutos, reloj=ahora, leer=None, dormir=None):
         basedatos.guardar_config(con, correo_minutos=str(minutos))
         if minutos == anterior:
             return "El correo ya está activo cada %d minuto%s. Próximo envío: %s." % (minutos, plural, _hora(proximo))
+        despues = proximo + timedelta(minutes=minutos) if proximo else None
         lineas = ["Intervalo cambiado a %d minuto%s. El próximo correo sale a las %s, como estaba programado; "
-                  "desde ahí, cada %d minuto%s." % (minutos, plural, _hora(proximo), minutos, plural)]
+                  "desde ahí se cuentan los %d minuto%s: el siguiente a las %s."
+                  % (minutos, plural, _hora(proximo), minutos, plural, _hora(despues))]
         aviso = aviso_limite_gmail(cfg, minutos)
         return "\n".join(lineas + ([aviso] if aviso else []))
     extra = {"dormir": dormir} if dormir else {}
