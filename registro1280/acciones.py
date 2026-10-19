@@ -19,6 +19,7 @@ from .horario import leer_fecha, minutos_config, siguiente_envio, texto_fecha
 from .reloj import ahora
 
 LATIDO_MAXIMO = 200   # segundos sin latido para decir que un servicio no responde
+MAXIMO_DIRECCIONES = 5000   # caracteres de cada lista (para o copia)
 
 
 class ErrorAccion(Exception):
@@ -200,10 +201,27 @@ def correo_direcciones(con, cual, texto):
         raise ErrorAccion(str(e))
     if not lista:
         raise ErrorAccion("Indicar al menos una dirección de correo.")
-    if len(", ".join(lista)) > 1000:
-        raise ErrorAccion("Demasiadas direcciones (máximo 1000 caracteres en total).")
+    if len(", ".join(lista)) > MAXIMO_DIRECCIONES:
+        raise ErrorAccion("Demasiadas direcciones (máximo %d caracteres en total)." % MAXIMO_DIRECCIONES)
     basedatos.guardar_config(con, **{clave: ", ".join(lista)})
     return "%s: %s" % (nombre, ", ".join(lista))
+
+
+def correo_destinatarios(con, para, copia):
+    """Para y copia juntos (listas de direcciones, una por casilla en la web)."""
+    try:
+        lista_para = correo.direcciones(" ".join(para))
+        lista_copia = correo.direcciones(" ".join(copia))
+    except ValueError as e:
+        raise ErrorAccion(str(e))
+    if not lista_para:
+        raise ErrorAccion("Falta al menos un destinatario en Para.")
+    for lista in (lista_para, lista_copia):
+        if len(", ".join(lista)) > MAXIMO_DIRECCIONES:
+            raise ErrorAccion("Demasiadas direcciones (máximo %d caracteres en total)." % MAXIMO_DIRECCIONES)
+    basedatos.guardar_config(con, correo_para=", ".join(lista_para), correo_copia=", ".join(lista_copia))
+    return "Para (%d): %s\nCopia (%d): %s" % (len(lista_para), ", ".join(lista_para), len(lista_copia),
+                                               ", ".join(lista_copia) or "sin copia")
 
 
 def correo_cuenta(con, usuario, clave, probar_cuenta=None):
@@ -235,8 +253,9 @@ def correo_cuenta(con, usuario, clave, probar_cuenta=None):
         correo.guardar_cuenta(usuario, clave)
     except OSError as e:
         raise ErrorAccion("No se pudo guardar la cuenta (%s). Usar sudo." % e)
-    basedatos.guardar_config(con, correo_cuenta=usuario)
-    lineas.append("Cuenta guardada: %s. La contraseña queda solo en esta Raspberry." % usuario)
+    # Copia para mostrarla en la página Configuración (la pidió el cliente); se envía con el archivo.
+    basedatos.guardar_config(con, correo_cuenta=usuario, correo_clave=clave)
+    lineas.append("Cuenta guardada: %s." % usuario)
     return "\n".join(lineas)
 
 
@@ -309,6 +328,7 @@ TIPOS = {
     "correo": "Envío por correo",
     "correo_para": "Destinatarios (para)",
     "correo_copia": "Copia",
+    "correo_destinatarios": "Destinatarios",
     "correo_cuenta": "Cuenta de Gmail",
     "correo_probar": "Correo de prueba",
 }
@@ -337,6 +357,13 @@ def ejecutar(con, tipo, datos, reloj=ahora, leer=None, enviar=None, leer_cuenta=
         return correo_direcciones(con, "para", datos)
     if tipo == "correo_copia":
         return correo_direcciones(con, "copia", datos)
+    if tipo == "correo_destinatarios":
+        try:
+            valores = json.loads(datos)
+            para, copia = list(valores.get("para") or []), list(valores.get("copia") or [])
+        except (ValueError, AttributeError, TypeError):
+            raise ErrorAccion("Datos de los destinatarios no válidos.")
+        return correo_destinatarios(con, [str(x) for x in para], [str(x) for x in copia])
     if tipo == "correo_cuenta":
         try:
             valores = json.loads(datos)

@@ -494,6 +494,16 @@ class PedidosDeLaWeb(unittest.TestCase):
         self.assertEqual(self.pedir("correo_para", "no-es-correo")[0], "ERROR")
         self.assertEqual(self.pedir("correo_para", "ktomasl@alicorp.com.pe, subelrobotin@gmail.com")[0], "OK")
         self.assertEqual(self.pedir("correo_copia", "")[1], "Sin copia.")
+        self.assertEqual(basedatos.config(self.con)["correo_clave"], "abcdefghijklmnop")   # para verla en la web
+        estado, texto = self.pedir("correo_destinatarios", json.dumps({"para": ["a@x.com", "b@y.pe"], "copia": []}))
+        self.assertEqual(estado, "OK", texto)
+        self.assertEqual(basedatos.config(self.con)["correo_para"], "a@x.com, b@y.pe")
+        self.assertEqual(self.pedir("correo_destinatarios", json.dumps({"para": [], "copia": ["c@z.com"]}))[0], "ERROR")
+        muchos = ["persona%03d@alicorp.com.pe" % i for i in range(100)]
+        estado, texto = self.pedir("correo_destinatarios", json.dumps({"para": ["ktomasl@alicorp.com.pe"],
+                                                                       "copia": muchos}))
+        self.assertEqual(estado, "OK", texto)
+        self.assertEqual(len(basedatos.config(self.con)["correo_copia"].split(", ")), 100)
         estado, texto = self.pedir("correo", "5")
         self.assertEqual(estado, "OK", texto)
         self.assertIn("Primer envío a las 09:15", texto)
@@ -504,6 +514,13 @@ class PedidosDeLaWeb(unittest.TestCase):
         self.assertEqual(self.smtp.mensajes[0]["para"], ["otra@empresa.com"])
         self.assertEqual(self.pedir("correo", "detener")[0], "OK")
         self.assertEqual(basedatos.config(self.con)["correo_activo"], "0")
+
+    def test_copia_la_clave_de_cuentas_anteriores(self):
+        correo.guardar_cuenta("prueba@gmail.com", "abcdefghijklmnop")
+        basedatos.guardar_config(self.con, correo_cuenta="prueba@gmail.com", correo_clave="")
+        self.servicio.leer_cuenta = correo.leer_cuenta
+        self.servicio.vuelta()
+        self.assertEqual(basedatos.config(self.con)["correo_clave"], "abcdefghijklmnop")
 
     def test_cuenta_rechazada_no_se_guarda(self):
         def rechazar(cuenta):
@@ -546,7 +563,7 @@ class ComandoCorreo(unittest.TestCase):
         codigo, salida, _ = correr(comandos.correo, "para", "ktomasl@alicorp.com.pe")
         self.assertIn("Para: ktomasl@alicorp.com.pe", salida)
         codigo, salida, _ = correr(comandos.correo, "copia", "subelrobotin@gmail.com")
-        codigo, _, error = correr(comandos.correo, "copia", *["persona%d@empresa.com.pe" % i for i in range(60)])
+        codigo, _, error = correr(comandos.correo, "copia", *["persona%d@empresa.com.pe" % i for i in range(250)])
         self.assertEqual(codigo, 1)
         self.assertIn("Demasiadas direcciones", error)
         codigo, salida, _ = correr(comandos.correo, "copia", " ".join("p%d@alicorp.com.pe" % i for i in range(9)))

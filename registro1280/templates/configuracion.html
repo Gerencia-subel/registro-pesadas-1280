@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2314212c'/%3E%3Ctext x='32' y='42' font-family='Arial' font-weight='700' font-size='26' text-anchor='middle' fill='%23f0b23a'%3Ekg%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="{{ url_for('static', filename='estilo.css') }}">
 </head>
-<body>
+<body class="pagina-config">
 <header class="barra">
   <div>
     <h1>Registro de pesadas</h1>
@@ -27,7 +27,7 @@
 <main class="config">
   <p class="nota">Todo lo que se cambia aquí queda guardado y sigue funcionando aunque se reinicie la Raspberry. Es lo mismo que los comandos de la terminal.</p>
 
-  <section class="panel" aria-labelledby="t-correo">
+  <section class="panel panel-correo" aria-labelledby="t-correo">
     <div class="panel-cabeza">
       <h2 id="t-correo">Envío por correo</h2>
       <span class="estado" id="correo-estado">–</span>
@@ -35,7 +35,7 @@
     <p class="detalle-panel" id="correo-detalle"></p>
 
     <form class="fila" data-tipo="correo">
-      <div class="campo"><label for="correo-minutos">Enviar cada (minutos)</label>
+      <div class="campo minutos"><label for="correo-minutos">Enviar cada (minutos)</label>
         <input id="correo-minutos" name="datos" inputmode="numeric" pattern="[0-9]*" maxlength="5" required></div>
       <div class="botones">
         <button type="submit" class="primario" id="correo-activar">Activar</button>
@@ -43,70 +43,71 @@
       </div>
     </form>
 
-    <form class="fila" data-tipo="correo_para">
-      <div class="campo ancho"><label for="correo-para">Para (separar varias direcciones con coma)</label>
-        <input id="correo-para" name="datos" maxlength="1000" required></div>
-      <div class="botones"><button type="submit">Guardar</button></div>
-    </form>
-
-    <form class="fila" data-tipo="correo_copia">
-      <div class="campo ancho"><label for="correo-copia">Copia (vacío = sin copia)</label>
-        <input id="correo-copia" name="datos" maxlength="1000"></div>
-      <div class="botones"><button type="submit">Guardar</button></div>
+    <form id="form-destinatarios" class="destinatarios">
+      <div class="listas">
+        <fieldset class="lista">
+          <legend>Para</legend>
+          <div id="lista-para"></div>
+          <button type="button" class="agregar" data-lista="para">+ Agregar correo</button>
+        </fieldset>
+        <fieldset class="lista">
+          <legend>Copia</legend>
+          <div id="lista-copia"></div>
+          <button type="button" class="agregar" data-lista="copia">+ Agregar correo</button>
+        </fieldset>
+      </div>
+      <div class="botones"><button type="submit" class="primario">Guardar destinatarios</button></div>
     </form>
 
     <form class="fila" data-tipo="correo_cuenta" autocomplete="off">
       <div class="campo"><label for="correo-cuenta">Cuenta de Gmail que envía</label>
         <input id="correo-cuenta" name="usuario" type="email" maxlength="254" required autocomplete="off"></div>
       <div class="campo"><label for="correo-clave">Contraseña de aplicación (16 letras)</label>
-        <input id="correo-clave" name="clave" type="password" maxlength="100" required autocomplete="new-password"></div>
+        <div class="con-ojo">
+          <input id="correo-clave" name="clave" type="password" maxlength="100" required autocomplete="new-password">
+          <button type="button" id="ver-clave" aria-pressed="false">Ver</button>
+        </div></div>
       <div class="botones"><button type="submit">Guardar cuenta</button></div>
-      <p class="ayuda">Se prueba en Gmail antes de guardar. La contraseña no se muestra nunca; para cambiarla, escribir la nueva.</p>
-    </form>
-
-    <form class="fila" data-tipo="correo_probar">
-      <div class="campo ancho"><label for="correo-probar">Correo de prueba a (vacío = a los destinatarios)</label>
-        <input id="correo-probar" name="datos" maxlength="254"></div>
-      <div class="botones"><button type="submit">Enviar prueba</button></div>
+      <p class="ayuda">Se prueba en Gmail antes de guardar.</p>
     </form>
     <p class="resultado" id="res-correo" role="status"></p>
   </section>
 
-  <section class="panel" aria-labelledby="t-bucle">
-    <div class="panel-cabeza">
-      <h2 id="t-bucle">Guardado automático</h2>
-      <span class="estado" id="bucle-estado">–</span>
-    </div>
-    <form class="fila" data-tipo="bucle">
-      <div class="campo"><label for="bucle-minutos">Guardar cada (minutos)</label>
-        <input id="bucle-minutos" name="datos" inputmode="numeric" pattern="[0-9]*" maxlength="5" required></div>
-      <div class="botones">
-        <button type="submit" class="primario">Activar</button>
-        <button type="button" data-tipo="bucle" data-datos="detener">Detener</button>
-        <button type="button" data-tipo="guardar" data-datos="">Guardar ahora</button>
+  <div class="columna">
+    <section class="panel" aria-labelledby="t-bucle">
+      <div class="panel-cabeza">
+        <h2 id="t-bucle">Guardado automático</h2>
+        <span class="estado" id="bucle-estado">–</span>
       </div>
-    </form>
-    <p class="resultado" id="res-bucle" role="status"></p>
-  </section>
+      <form class="fila" data-tipo="bucle">
+        <div class="campo minutos"><label for="bucle-minutos">Guardar cada (minutos)</label>
+          <input id="bucle-minutos" name="datos" inputmode="numeric" pattern="[0-9]*" maxlength="5" required></div>
+        <div class="botones">
+          <button type="submit" class="primario">Activar</button>
+          <button type="button" data-tipo="bucle" data-datos="detener">Detener</button>
+          <button type="button" data-tipo="guardar" data-datos="">Guardar ahora</button>
+        </div>
+      </form>
+      <p class="resultado" id="res-bucle" role="status"></p>
+    </section>
 
-  <section class="panel" aria-labelledby="t-controlador">
-    <div class="panel-cabeza">
-      <h2 id="t-controlador">Controlador</h2>
-    </div>
-    <form class="fila" data-tipo="controlador">
-      <div class="campo"><label for="ctrl-ip">IP</label>
-        <input id="ctrl-ip" name="ip" inputmode="decimal" maxlength="15" required></div>
-      <div class="campo"><label for="ctrl-puerto">Puerto</label>
-        <input id="ctrl-puerto" name="puerto" inputmode="numeric" pattern="[0-9]*" maxlength="5" required></div>
-      <div class="botones">
-        <button type="submit">Guardar</button>
-        <button type="button" data-tipo="controlador_probar" data-datos="">Probar conexión</button>
-      </div>
-    </form>
-    <p class="resultado" id="res-controlador" role="status"></p>
-  </section>
+    <section class="panel" aria-labelledby="t-controlador">
+      <div class="panel-cabeza"><h2 id="t-controlador">Controlador</h2></div>
+      <form class="fila" data-tipo="controlador">
+        <div class="campo"><label for="ctrl-ip">IP</label>
+          <input id="ctrl-ip" name="ip" inputmode="decimal" maxlength="15" required></div>
+        <div class="campo corto"><label for="ctrl-puerto">Puerto</label>
+          <input id="ctrl-puerto" name="puerto" inputmode="numeric" pattern="[0-9]*" maxlength="5" required></div>
+        <div class="botones">
+          <button type="submit">Guardar</button>
+          <button type="button" data-tipo="controlador_probar" data-datos="">Probar conexión</button>
+        </div>
+      </form>
+      <p class="resultado" id="res-controlador" role="status"></p>
+    </section>
+  </div>
 
-  <section class="panel" aria-labelledby="t-cambios">
+  <section class="panel ancho-total" aria-labelledby="t-cambios">
     <div class="panel-cabeza"><h2 id="t-cambios">Últimos cambios y acciones</h2></div>
     <div class="tabla-caja">
       <table>

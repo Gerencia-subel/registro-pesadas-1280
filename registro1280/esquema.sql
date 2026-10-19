@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
   creado     DATETIME       NOT NULL,
   origen     VARCHAR(80)    NOT NULL DEFAULT '' COMMENT 'IP de quien lo pidió',
   tipo       VARCHAR(30)    NOT NULL,
-  datos      VARCHAR(1000)  NOT NULL DEFAULT '' COMMENT 'Se borra al atenderlo si lleva la contraseña',
+  datos      VARCHAR(6000)  NOT NULL DEFAULT '' COMMENT 'Se borra al atenderlo si lleva la contraseña',
   estado     VARCHAR(10)    NOT NULL DEFAULT 'PENDIENTE' COMMENT 'PENDIENTE, OK o ERROR',
   resultado  VARCHAR(2000)  NULL,
   atendido   DATETIME       NULL,
@@ -98,11 +98,13 @@ CREATE TABLE IF NOT EXISTS pedidos (
 -- Configuración: IP y puerto del controlador, el bucle y el correo.
 CREATE TABLE IF NOT EXISTS configuracion (
   clave  VARCHAR(40)   NOT NULL,
-  valor  VARCHAR(1000) NOT NULL,
+  valor  VARCHAR(5000) NOT NULL,
   PRIMARY KEY (clave)
 ) ENGINE=InnoDB;
--- Versión 1.2: más espacio para las listas de destinatarios del correo.
-ALTER TABLE configuracion MODIFY valor VARCHAR(1000) NOT NULL;
+-- Versiones anteriores: más espacio para listas largas de destinatarios.
+ALTER TABLE configuracion MODIFY valor VARCHAR(5000) NOT NULL;
+ALTER TABLE pedidos MODIFY datos VARCHAR(6000) NOT NULL DEFAULT '';
+ALTER TABLE correos MODIFY para TEXT NULL, MODIFY copia TEXT NULL;
 
 INSERT IGNORE INTO configuracion (clave, valor) VALUES
   ('ip', '10.30.211.141'),
@@ -117,6 +119,7 @@ INSERT IGNORE INTO configuracion (clave, valor) VALUES
   ('correo_para', ''),
   ('correo_copia', ''),
   ('correo_cuenta', ''),
+  ('correo_clave', ''),
   ('correo_desde', ''),
   ('correo_proximo', ''),
   ('correo_detenido', ''),

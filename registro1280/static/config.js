@@ -35,8 +35,7 @@ async function cargar() {
   texto($("correo-detalle"), d);
   texto($("correo-activar"), c.activo ? "Cambiar intervalo" : "Activar");
   poner("correo-minutos", c.minutos);
-  poner("correo-para", c.para);
-  poner("correo-copia", c.copia);
+  if (!listasEditadas) { pintarLista("para", c.para); pintarLista("copia", c.copia); }
   poner("correo-cuenta", c.cuenta);
 
   const b = r.bucle;
@@ -68,6 +67,86 @@ async function cargar() {
   }
 }
 
+// ---------------------------------------------------------------- destinatarios (uno por casilla)
+let listasEditadas = false;
+
+function itemCorreo(lista, valor) {
+  const fila = document.createElement("div");
+  fila.className = "item";
+  const entrada = document.createElement("input");
+  entrada.type = "email";
+  entrada.maxLength = 254;
+  entrada.placeholder = "nombre@empresa.com";
+  entrada.value = valor || "";
+  entrada.setAttribute("aria-label", lista === "para" ? "Correo para" : "Correo en copia");
+  entrada.addEventListener("input", () => { listasEditadas = true; });
+  const quitar = document.createElement("button");
+  quitar.type = "button";
+  quitar.textContent = "Quitar";
+  quitar.addEventListener("click", () => {
+    fila.remove();
+    listasEditadas = true;
+    revisarVacia(lista);
+  });
+  fila.append(entrada, quitar);
+  return fila;
+}
+
+function revisarVacia(lista) {
+  const caja = $("lista-" + lista);
+  const aviso = caja.querySelector(".vacio-lista");
+  const hay = caja.querySelector(".item");
+  if (!hay && !aviso) {
+    const p = document.createElement("p");
+    p.className = "vacio-lista";
+    p.textContent = lista === "para" ? "Sin destinatarios." : "Sin copia.";
+    caja.prepend(p);
+  } else if (hay && aviso) {
+    aviso.remove();
+  }
+}
+
+function pintarLista(lista, correos) {
+  const caja = $("lista-" + lista);
+  caja.innerHTML = "";
+  for (const c of correos) caja.appendChild(itemCorreo(lista, c));
+  revisarVacia(lista);
+}
+
+function leerLista(lista) {
+  return Array.from($("lista-" + lista).querySelectorAll("input")).map((i) => i.value.trim()).filter((v) => v);
+}
+
+document.querySelectorAll("button.agregar").forEach((b) => {
+  b.addEventListener("click", () => {
+    const lista = b.dataset.lista;
+    const fila = itemCorreo(lista, "");
+    $("lista-" + lista).appendChild(fila);
+    revisarVacia(lista);
+    listasEditadas = true;
+    fila.querySelector("input").focus();
+  });
+});
+
+$("form-destinatarios").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  enviar("correo_destinatarios", { para: leerLista("para"), copia: leerLista("copia") });
+});
+
+// ---------------------------------------------------------------- contraseña: ver / ocultar
+async function cargarClave() {
+  const r = await pedir("/api/configuracion/clave");
+  if (r.ok && !$("correo-clave").dataset.editado) $("correo-clave").value = r.clave || "";
+}
+
+$("ver-clave").addEventListener("click", () => {
+  const campo = $("correo-clave");
+  const ver = campo.type === "password";
+  campo.type = ver ? "text" : "password";
+  $("ver-clave").textContent = ver ? "Ocultar" : "Ver";
+  $("ver-clave").setAttribute("aria-pressed", ver ? "true" : "false");
+});
+
 function zona(tipo) {
   if (tipo.startsWith("correo")) return $("res-correo");
   if (tipo === "bucle" || tipo === "guardar") return $("res-bucle");
@@ -96,7 +175,8 @@ async function enviar(tipo, cuerpo) {
         caja.className = "resultado " + (p.estado === "OK" ? "bien" : "error");
         texto(caja, p.resultado);
         document.querySelectorAll("[data-editado]").forEach((el) => { delete el.dataset.editado; });
-        if (tipo === "correo_cuenta" && p.estado === "OK") $("correo-clave").value = "";
+        if (tipo === "correo_destinatarios" && p.estado === "OK") listasEditadas = false;
+        if (tipo === "correo_cuenta") cargarClave();
         return;
       }
     }
@@ -135,4 +215,5 @@ document.querySelectorAll("button[data-tipo]").forEach((b) => {
 });
 
 cargar();
+cargarClave();
 setInterval(() => { if (!ocupado) cargar(); }, 15000);

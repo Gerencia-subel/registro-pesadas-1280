@@ -203,9 +203,9 @@ def registrar_correo(con, nros_enviados=(), config_nueva=None, **campos):
     columnas = ("enviado_en", "tipo", "desde", "hasta", "pesadas", "resultado", "para", "copia",
                 "archivo", "detalle")
     valores = [campos.get(c) for c in columnas]
-    for i in (6, 7, 9):
+    for i, largo in ((6, 5000), (7, 5000), (9, 500)):
         if valores[i]:
-            valores[i] = str(valores[i])[:500]
+            valores[i] = str(valores[i])[:largo]
     cur = con.cursor()
     try:
         cur.execute("INSERT INTO correos (%s) VALUES (%s)" % (", ".join(columnas), ", ".join(["%s"] * len(columnas))),
@@ -260,7 +260,7 @@ def soltar_candado_correo(con):
 def crear_pedido(con, tipo, datos, creado, origen=""):
     cur = con.cursor()
     cur.execute("INSERT INTO pedidos (creado, origen, tipo, datos) VALUES (%s, %s, %s, %s)",
-                (creado, (origen or "")[:80], tipo[:30], (datos or "")[:1000]))
+                (creado, (origen or "")[:80], tipo[:30], (datos or "")[:6000]))
     nro = cur.lastrowid
     con.commit()
     return nro

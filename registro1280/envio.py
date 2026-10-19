@@ -80,6 +80,7 @@ class ServicioCorreo:
         self._ultimo_latido = 0.0
         self._activo = None
         self._por_anotar = None   # correo ya enviado (o fallido) que falta anotar en la base
+        self._clave_revisada = False
 
     # ------------------------------------------------------------------
     def correr(self):
@@ -120,6 +121,8 @@ class ServicioCorreo:
             # ejemplo): se reintenta solo la anotación. Ese tramo nunca se vuelve a enviar.
             self._anotar(con)
             return 0.5
+        if not self._clave_revisada:
+            self._copiar_clave(con)
         self.atender_pedidos(con)
         cfg = basedatos.config(con)
         activo = cfg.get("correo_activo") == "1"
@@ -165,6 +168,16 @@ class ServicioCorreo:
                                    enviado_en=r["enviado_en"], resultado="OK" if r["ok"] else "ERROR",
                                    detalle=r["detalle"] or "", **r["datos"])
         self._por_anotar = None
+
+    def _copiar_clave(self, con):
+        """Cuentas guardadas antes de la versión 1.3.1: copia la contraseña para verla en la web."""
+        self._clave_revisada = True
+        cfg = basedatos.config(con)
+        if cfg.get("correo_cuenta") and not cfg.get("correo_clave"):
+            try:
+                basedatos.guardar_config(con, correo_clave=self.leer_cuenta()["clave"])
+            except correo.ErrorCorreo:
+                pass
 
     # ------------------------------------------------------------------
     def atender_pedidos(self, con):

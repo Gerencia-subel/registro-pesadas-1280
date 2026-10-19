@@ -60,7 +60,7 @@ def preparar_base():
                  "UPDATE configuracion SET valor='0' WHERE clave IN ('bucle_activo','correo_activo'); "
                  "UPDATE configuracion SET valor='5' WHERE clave IN ('bucle_minutos','correo_minutos'); "
                  "UPDATE configuracion SET valor='' WHERE clave IN ('bucle_cambiado','latido','ultimo_respaldo',"
-                 "'correo_para','correo_copia','correo_cuenta','correo_desde','correo_proximo','correo_detenido',"
+                 "'correo_para','correo_copia','correo_cuenta','correo_clave','correo_desde','correo_proximo','correo_detenido',"
                  "'correo_latido');"
                  % BASE)
     if r.returncode != 0:

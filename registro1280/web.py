@@ -76,6 +76,10 @@ def _vivo(latido):
     return edad <= LATIDO_MAXIMO
 
 
+def _lista(texto):
+    return [d.strip() for d in (texto or "").split(",") if d.strip()]
+
+
 def _hora_config(texto):
     try:
         return formato.fecha(datetime.strptime(texto or "", "%Y-%m-%d %H:%M:%S"))
@@ -284,8 +288,8 @@ def crear_app(ajustes, conectar=basedatos.conectar):
                 "correo": {
                     "activo": cfg.get("correo_activo") == "1", "minutos": str(minutos_config(cfg)),
                     "servicio_ok": _vivo(cfg.get("correo_latido")),
-                    "cuenta": cfg.get("correo_cuenta", ""), "para": cfg.get("correo_para", ""),
-                    "copia": cfg.get("correo_copia", ""),
+                    "cuenta": cfg.get("correo_cuenta", ""), "para": _lista(cfg.get("correo_para")),
+                    "copia": _lista(cfg.get("correo_copia")),
                     "proximo": formato.fecha(leer_fecha(cfg.get("correo_proximo"))),
                     "desde": formato.fecha(leer_fecha(cfg.get("correo_desde"))),
                     "pendientes": basedatos.contar_pendientes(con) if cfg.get("correo_activo") == "1" else 0,
@@ -307,14 +311,23 @@ def crear_app(ajustes, conectar=basedatos.conectar):
         if tipo == "correo_cuenta":
             datos = json.dumps({"usuario": str(cuerpo.get("usuario") or "").strip(),
                                 "clave": str(cuerpo.get("clave") or "")})
+        elif tipo == "correo_destinatarios":
+            datos = json.dumps({c: [str(x).strip() for x in (cuerpo.get(c) or []) if str(x).strip()]
+                                for c in ("para", "copia")})
         else:
             datos = str(cuerpo.get("datos") or "").strip()
-        if len(datos) > 1000:
-            return jsonify({"ok": False, "error": "Demasiado texto (máximo 1000 caracteres)."}), 400
+        if len(datos) > 6000:
+            return jsonify({"ok": False, "error": "Demasiado texto (máximo 6000 caracteres)."}), 400
 
         def hacer(con):
             nro = basedatos.crear_pedido(con, tipo, datos, ahora(), origen_del_pedido())
             return jsonify({"ok": True, "nro": nro})
+        return con_base(hacer)
+
+    @app.get("/api/configuracion/clave")
+    def api_clave():
+        def hacer(con):
+            return jsonify({"ok": True, "clave": basedatos.config(con).get("correo_clave", "")})
         return con_base(hacer)
 
     @app.get("/api/pedidos/<int:nro>")

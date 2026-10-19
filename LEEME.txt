@@ -68,7 +68,7 @@
 
 13. Página web: http://IP-DE-LA-PI:8081 (en planta http://10.30.211.130:8081), por Tailscale http://100.118.130.78:8081 o por internet con el enlace de Funnel. Usuario: intradevco   Clave: intradevco
    Pesadas: todas las pesadas guardadas, con filtros; no se pueden editar ni borrar. Abajo, los correos enviados.
-   Configuración: lo mismo que los comandos de la terminal. Envío por correo (cada cuántos minutos, activar, detener, para, copia, cuenta de Gmail y su contraseña de aplicación, correo de prueba), guardado automático (minutos, activar, detener, guardar ahora) y controlador (IP, puerto, probar conexión). Abajo se ven los últimos cambios, con fecha, resultado y desde qué IP se hicieron. Todo queda guardado y sigue funcionando aunque se reinicie la Pi.
+   Configuración: lo mismo que los comandos de la terminal. Envío por correo (cada cuántos minutos, activar, detener; Para y Copia con un correo por casilla y el botón Agregar correo; cuenta de Gmail y su contraseña de aplicación, que se puede ver con el botón Ver), guardado automático (minutos, activar, detener, guardar ahora) y controlador (IP, puerto, probar conexión). Abajo se ven los últimos cambios, con fecha, resultado y desde qué IP se hicieron. Todo queda guardado y sigue funcionando aunque se reinicie la Pi.
    Después de 5 claves incorrectas se bloquea el ingreso por 5 minutos. Como desde la web se puede cambiar la configuración y la web está publicada en internet, conviene cambiar la clave: sudo cambiar-clave
 
 14. Publicar la web en internet con Tailscale Funnel (para abrirla sin tener Tailscale):

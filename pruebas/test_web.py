@@ -127,7 +127,7 @@ class Web(unittest.TestCase):
             self.assertIn("Envío por correo", pagina)
             self.assertIn(self.csrf(), pagina)
             r = self.cliente.get("/api/configuracion").get_json()
-            self.assertEqual((r["correo"]["cuenta"], r["correo"]["para"]), ("industria@gmail.com", "ktomasl@alicorp.com.pe"))
+            self.assertEqual((r["correo"]["cuenta"], r["correo"]["para"]), ("industria@gmail.com", ["ktomasl@alicorp.com.pe"]))
             self.assertNotIn("clave", json.dumps(r))
             cabecera = {"X-CSRF-Token": self.csrf()}
             sin_ficha = self.cliente.post("/api/pedidos", json={"tipo": "bucle", "datos": "5"})
@@ -142,9 +142,17 @@ class Web(unittest.TestCase):
             fila = basedatos.pedidos_pendientes(con)[0]
             self.assertEqual((fila["tipo"], json.loads(fila["datos"])["usuario"]), ("correo_cuenta", "otra@gmail.com"))
             self.assertEqual(self.cliente.get("/api/pedidos/999999").status_code, 404)
+            basedatos.guardar_config(con, correo_clave="abcdefghijklmnop")
+            self.assertEqual(self.cliente.get("/api/configuracion/clave").get_json()["clave"], "abcdefghijklmnop")
+            r = self.cliente.post("/api/pedidos", json={"tipo": "correo_destinatarios", "para": ["a@x.com", " "],
+                                                        "copia": ["b@y.pe"]}, headers=cabecera).get_json()
+            fila = [p for p in basedatos.pedidos_pendientes(con) if p["nro"] == r["nro"]][0]
+            self.assertEqual(json.loads(fila["datos"]), {"para": ["a@x.com"], "copia": ["b@y.pe"]})
+            self.assertEqual(self.cliente.get("/api/configuracion").get_json()["correo"]["para"],
+                             ["ktomasl@alicorp.com.pe"])
         finally:
             con.cursor().execute("TRUNCATE pedidos")
-            basedatos.guardar_config(con, correo_cuenta="", correo_para="")
+            basedatos.guardar_config(con, correo_cuenta="", correo_para="", correo_clave="")
             con.close()
 
     def test_salir(self):
