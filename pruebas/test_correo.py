@@ -46,6 +46,12 @@ def leer_csv(mensaje):
 
 # ---------------------------------------------------------------------- sin base de datos
 class Formatos(unittest.TestCase):
+    def test_detalle_enviado_con_y_sin_copia(self):
+        self.assertEqual(correo.detalle_enviado("a@empresa.com", "b@empresa.com"),
+                         "Enviado a a@empresa.com; copia b@empresa.com.")
+        self.assertEqual(correo.detalle_enviado("a@empresa.com", ""), "Enviado a a@empresa.com.")
+        self.assertEqual(correo.detalle_enviado(None, None), "Correo enviado.")
+
     def test_numeros_como_los_manda_el_controlador(self):
         self.assertEqual(correo.numero_csv(Decimal("302.9500")), "302.95")
         self.assertEqual(correo.numero_csv(Decimal("22559.8500")), "22559.85")
@@ -219,7 +225,7 @@ class Tramos(unittest.TestCase):
 
     def leer(self, ip, puerto):
         if self.controlador_caido:
-            raise ErrorControlador("El controlador no respondió")
+            raise ErrorControlador("Sin respuesta del controlador en %s:%s" % (ip, puerto))
         return leer_pesadas(ip, puerto)
 
     def activar(self, minutos=5):
@@ -325,9 +331,35 @@ class Tramos(unittest.TestCase):
         m = self.smtp.mensajes[0]["mensaje"]
         self.assertEqual(asunto(m), "Balanza de Coches - PDL 19/10/2026 09:12 - 09:15 - Sin pesadas - Controlador sin respuesta")
         self.assertIn("no se pudo leer el controlador", m.get_body().get_content())
+        cfg = basedatos.config(self.con)
+        self.assertIn("controlador %s" % cfg["ip"], m.get_body().get_content())
+        self.assertNotIn("%s:%s" % (cfg["ip"], cfg["puerto"]), m.get_body().get_content())
+        self.assertEqual(basedatos.correos(self.con, 1)[0]["detalle"],
+                         "Enviado a ktomasl@alicorp.com.pe; copia subelrobotin@gmail.com.")
         self.controlador_caido = False
         self.hasta(9, 20)
         self.assertEqual(sorted(self.ids_enviados()), sorted(int(p.split("|")[0]) for p in a))
+
+    def test_detalle_breve_con_pesadas_y_controlador_caido(self):
+        self.activar(5)
+        self.hasta(9, 14)
+        self.pesar(2)
+        guardar = acciones.guardar_ahora
+        guardar(self.con, "manual", leer=self.leer, reloj=self.reloj)
+        self.controlador_caido = True
+        self.hasta(9, 15)
+        enviado = basedatos.correos(self.con, 1)[0]
+        self.assertEqual((enviado["resultado"], enviado["pesadas"]), ("OK", 2))
+        self.assertEqual(enviado["detalle"], "Enviado a ktomasl@alicorp.com.pe; copia subelrobotin@gmail.com.")
+        self.assertEqual(basedatos.contar_pendientes(self.con), 0)
+
+    def test_correo_de_prueba_sin_puerto_si_falla_el_controlador(self):
+        self.controlador_caido = True
+        acciones.correo_probar(self.con, leer=self.leer, leer_cuenta=self.smtp.cuenta, reloj=self.reloj)
+        cuerpo = self.smtp.mensajes[0]["mensaje"].get_body().get_content()
+        cfg = basedatos.config(self.con)
+        self.assertIn("controlador %s" % cfg["ip"], cuerpo)
+        self.assertNotIn("%s:%s" % (cfg["ip"], cfg["puerto"]), cuerpo)
 
     def test_cambio_de_intervalo_respeta_el_envio_programado(self):
         self.activar(60)

@@ -5,6 +5,7 @@ import io
 import unittest
 from datetime import datetime
 from decimal import Decimal
+from html.parser import HTMLParser
 from xml.etree import ElementTree as ET
 from zipfile import ZipFile
 
@@ -49,6 +50,7 @@ class Web(unittest.TestCase):
         self.assertIn("/ingresar", r.headers["Location"])
         self.assertEqual(self.cliente.get("/api/pesadas").status_code, 401)
         self.assertEqual(self.cliente.get("/api/correos").status_code, 401)
+        self.assertEqual(self.cliente.get("/configuracion").status_code, 302)
         self.assertEqual(self.cliente.get("/ingresar").status_code, 200)
         r = self.cliente.get("/static/estilo.css")
         self.assertEqual(r.status_code, 200)
@@ -90,6 +92,39 @@ class Web(unittest.TestCase):
         self.assertEqual(r["total"], 0)
         self.assertEqual(len(self.cliente.get("/api/descargas").get_json()["descargas"]), 1)
 
+    def test_secciones_en_un_solo_documento_y_enlaces_directos(self):
+        class Pagina(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.ids = []
+                self.vistas = {}
+                self.cuerpos = []
+
+            def handle_starttag(self, tag, attrs):
+                datos = dict(attrs)
+                if "id" in datos:
+                    self.ids.append(datos["id"])
+                    if datos["id"].startswith("vista-"):
+                        self.vistas[datos["id"]] = datos
+                if tag == "body":
+                    self.cuerpos.append(datos)
+
+        self.ingresar()
+        for ruta, activa, oculta in (("/", "pesadas", "configuracion"),
+                                     ("/configuracion", "configuracion", "pesadas")):
+            r = self.cliente.get(ruta)
+            self.assertEqual(r.status_code, 200)
+            html = r.get_data(as_text=True)
+            pagina = Pagina()
+            pagina.feed(html)
+            self.assertEqual(len(pagina.ids), len(set(pagina.ids)))
+            self.assertEqual(pagina.cuerpos, [{"data-vista": activa}])
+            self.assertNotIn("hidden", pagina.vistas["vista-" + activa])
+            self.assertIn("hidden", pagina.vistas["vista-" + oculta])
+            self.assertIn(self.csrf(), html)
+            self.assertIn("navegacion.js", html)
+            self.assertEqual(html.count('<header class="barra">'), 1)
+
     def test_correos(self):
         from datetime import datetime
         con = basedatos.conectar()
@@ -106,11 +141,46 @@ class Web(unittest.TestCase):
             self.assertEqual(r["correo"]["ultimo"]["tramo"], "19/10/2026 09:10 - 09:15")
             c = self.cliente.get("/api/correos").get_json()["correos"]
             self.assertEqual((len(c), c[0]["resultado"], c[0]["tipo"]), (1, "OK", "tramo"))
-            self.assertEqual(c[0]["detalle"], "Gmail no aceptó: ktomasl@alicorp.com.pe (550)")
+            self.assertEqual(c[0]["detalle"], "Enviado a ktomasl@alicorp.com.pe.")
             self.assertEqual(self.cliente.post("/api/correos", headers={"X-CSRF-Token": self.csrf()}).status_code, 405)
         finally:
             basedatos.guardar_config(con, correo_activo="0", correo_proximo="")
             con.cursor().execute("TRUNCATE correos")
+            con.close()
+
+    def test_detalle_breve_incluso_en_correos_anteriores(self):
+        con = basedatos.conectar()
+        viejo = ("Enviado a anterior@empresa.com; copia copia@empresa.com. "
+                 "Aviso: no se pudo leer el controlador (Sin respuesta del controlador en "
+                 "10.30.211.141:10001). Las pesadas que falten se enviarán en el siguiente correo.")
+        alerta = "Alerta de falla de comunicación: el controlador dejó de responder a las 16:39:41. Enviado a anterior@empresa.com."
+        error = "Gmail rechazó la cuenta o la contraseña de aplicación."
+        try:
+            def registrar(tipo, resultado, detalle, copia=""):
+                return basedatos.registrar_correo(
+                    con, enviado_en=datetime(2026, 10, 19, 16, 40), tipo=tipo, resultado=resultado,
+                    desde=None if tipo == "alerta" else datetime(2026, 10, 19, 16, 35),
+                    hasta=None if tipo == "alerta" else datetime(2026, 10, 19, 16, 40),
+                    pesadas=0, para="anterior@empresa.com", copia=copia, detalle=detalle)
+
+            n_tramo = registrar("tramo", "OK", viejo, "copia@empresa.com")
+            n_alerta = registrar("alerta", "OK", alerta)
+            n_error = registrar("tramo", "ERROR", error)
+            n_prueba = registrar("prueba", "OK", "Prueba enviada; sin archivo: no se pudo leer el controlador")
+            self.ingresar()
+            filas = {c["nro"]: c for c in self.cliente.get("/api/correos").get_json()["correos"]}
+            self.assertEqual(filas[n_tramo]["detalle"], "Enviado a anterior@empresa.com; copia copia@empresa.com.")
+            self.assertEqual(filas[n_prueba]["detalle"], "Enviado a anterior@empresa.com.")
+            self.assertEqual((filas[n_alerta]["tramo"], filas[n_alerta]["detalle"]), ("", alerta))
+            self.assertEqual(filas[n_error]["detalle"], error)
+            self.assertEqual(filas[n_tramo]["tramo"], "19/10/2026 16:35 - 16:40")
+            self.assertEqual(self.cliente.get("/api/resumen").get_json()["correo"]["ultimo"]["detalle"],
+                             "Enviado a anterior@empresa.com.")
+            originales = {c["nro"]: c for c in basedatos.correos(con)}
+            self.assertEqual(originales[n_tramo]["detalle"], viejo)
+        finally:
+            con.cursor().execute("TRUNCATE correos")
+            con.commit()
             con.close()
 
     def test_correos_paginados_sin_limite_de_50(self):

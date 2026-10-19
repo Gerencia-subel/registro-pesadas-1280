@@ -1,6 +1,8 @@
+(() => {
 "use strict";
 
-const $ = (id) => document.getElementById(id);
+const vista = document.getElementById("vista-pesadas");
+const $ = (id) => vista.querySelector("#" + id);
 let pagina = 1;
 let paginas = 1;
 let filtros = {};
@@ -258,11 +260,19 @@ $("correos-siguiente").addEventListener("click", () => {
 });
 
 leerFiltros();
-cargarResumen();
-cargarPesadas();
-cargarCorreos();
+function actualizar() {
+  cargarResumen();
+  cargarPesadas();
+  cargarCorreos();
+}
+document.addEventListener("registro1280:vista", (ev) => {
+  if (ev.detail === "pesadas") actualizar();
+});
+if (!vista.hidden) actualizar();
 setInterval(() => {
+  if (vista.hidden) return;
   cargarResumen();
   if (pagina === 1) cargarPesadas();   // en la primera página aparecen las nuevas solas
   if (paginaCorreos === 1) cargarCorreos();
 }, 30000);
+})();

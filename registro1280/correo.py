@@ -51,6 +51,12 @@ def direcciones(texto):
     return unicas
 
 
+def detalle_enviado(para, copia=""):
+    """Detalle breve del envío, con los destinatarios de ese correo."""
+    para, copia = (para or "").strip(), (copia or "").strip()
+    return "Enviado a %s%s." % (para, "; copia %s" % copia if copia else "") if para else "Correo enviado."
+
+
 # ------------------------------------------------------------------ cuenta
 def hay_cuenta(cfg):
     """Si ya se configuró la cuenta (la dirección queda anotada en la configuración)."""

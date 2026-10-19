@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf" content="{{ csrf }}">
+<title>{% if vista == 'configuracion' %}Configuración – Registro de pesadas{% else %}Registro de pesadas – Rice Lake 1280{% endif %}</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2314212c'/%3E%3Ctext x='32' y='42' font-family='Arial' font-weight='700' font-size='26' text-anchor='middle' fill='%23f0b23a'%3Ekg%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="{{ url_for('static', filename='estilo.css') }}">
+</head>
+<body data-vista="{{ vista }}">
+<header class="barra">
+  <div>
+    <h1>Registro de pesadas</h1>
+    <p class="sub">Indicador Rice Lake 1280 – Intradevco</p>
+  </div>
+  <nav class="menu" aria-label="Secciones">
+    <a href="{{ url_for('inicio') }}" data-vista="pesadas"{% if vista == 'pesadas' %} aria-current="page"{% endif %}>Pesadas</a>
+    <a href="{{ url_for('configuracion') }}" data-vista="configuracion"{% if vista == 'configuracion' %} aria-current="page"{% endif %}>Configuración</a>
+  </nav>
+  <div class="sesion">
+    <span>{{ usuario }}</span>
+    <a href="{{ url_for('salir') }}">Salir</a>
+  </div>
+</header>
+<div id="vista-pesadas"{% if vista != 'pesadas' %} hidden{% endif %}>
+  {% include 'inicio.html' %}
+</div>
+<div id="vista-configuracion"{% if vista != 'configuracion' %} hidden{% endif %}>
+  {% include 'configuracion.html' %}
+</div>
+<script src="{{ url_for('static', filename='navegacion.js') }}"></script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+<script src="{{ url_for('static', filename='config.js') }}"></script>
+</body>
+</html>

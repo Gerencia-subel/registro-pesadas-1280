@@ -1,6 +1,8 @@
+(() => {
 "use strict";
 
-const $ = (id) => document.getElementById(id);
+const vista = document.getElementById("vista-configuracion");
+const $ = (id) => vista.querySelector("#" + id);
 const CSRF = document.querySelector('meta[name="csrf"]').content;
 let ocupado = false;
 
@@ -25,14 +27,14 @@ function poner(id, valor) {
 
 async function cargar() {
   const r = await pedir("/api/configuracion");
-  if (!r.ok) { texto($("correo-detalle"), r.error); return; }
+  if (!r.ok) { texto($("correo-config-detalle"), r.error); return; }
   const c = r.correo;
   texto($("correo-estado"), c.activo ? "Activo, cada " + c.minutos + " min" : "Detenido");
   $("correo-estado").className = "estado " + (c.activo ? "si" : "no");
   let d = c.activo ? "Próximo envío: " + c.proximo + " (pesadas desde " + c.desde + "). Pendientes: " + c.pendientes + "."
                    : "No se envían correos. Para empezar: escribir los minutos y Activar.";
   if (!c.servicio_ok) d += " ATENCIÓN: el servicio del correo no responde.";
-  texto($("correo-detalle"), d);
+  texto($("correo-config-detalle"), d);
   texto($("correo-activar"), c.activo ? "Cambiar intervalo" : "Activar");
   poner("correo-minutos", c.minutos);
   if (!listasEditadas) { pintarLista("para", c.para); pintarLista("copia", c.copia); }
@@ -227,8 +229,14 @@ document.querySelectorAll("button[data-tipo]").forEach((b) => {
   });
 });
 
-cargar();
-cargarClave();
-cargarComunicacion();
-setInterval(cargarComunicacion, 3000);
-setInterval(() => { if (!ocupado) cargar(); }, 15000);
+function actualizar() {
+  if (!ocupado) { cargar(); cargarClave(); }
+  cargarComunicacion();
+}
+document.addEventListener("registro1280:vista", (ev) => {
+  if (ev.detail === "configuracion") actualizar();
+});
+if (!vista.hidden) actualizar();
+setInterval(() => { if (!vista.hidden) cargarComunicacion(); }, 3000);
+setInterval(() => { if (!vista.hidden && !ocupado) cargar(); }, 15000);
+})();

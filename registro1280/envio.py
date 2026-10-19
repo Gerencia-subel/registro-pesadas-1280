@@ -219,13 +219,14 @@ class ServicioCorreo:
         aviso, sin_controlador = "", False
         try:
             guardar(con, "correo", reintentos=1, leer=self.leer, reloj=self.reloj, dormir=self.dormir)
-        except ErrorControlador as e:
+        except ErrorControlador:
             sin_controlador = True
-            aviso = ("Aviso: a las %s no se pudo leer el controlador (%s). Las pesadas que falten se "
-                     "enviarán en el siguiente correo." % (self.reloj().strftime("%H:%M"), e))
+            aviso = ("Aviso: a las %s no se pudo leer el controlador %s. Las pesadas que falten se "
+                     "enviarán en el siguiente correo." % (self.reloj().strftime("%H:%M"), cfg.get("ip", "")))
         except ErrorBase as e:
-            aviso = ("Aviso: no se pudo guardar lo último del controlador (%s). Las pesadas que falten se "
-                     "enviarán en el siguiente correo." % e)
+            registro.warning("No se pudo guardar lo último del controlador: %s", e)
+            aviso = ("Aviso: no se pudo guardar lo último del controlador %s. Las pesadas que falten se "
+                     "enviarán en el siguiente correo." % cfg.get("ip", ""))
 
         filas = basedatos.pendientes_correo(con)
         archivo = correo.nombre_archivo(desde, hasta) if filas else None
@@ -260,8 +261,9 @@ class ServicioCorreo:
                     break
         if error is None:
             registro.info("Correo enviado: %s", asunto)
-            destinos = "Enviado a %s%s." % (", ".join(para), "; copia %s" % ", ".join(copia) if copia else "")
-            detalle = " ".join(t for t in (destinos, no_aceptados, aviso) if t)
+            if no_aceptados:
+                registro.warning("%s", no_aceptados)
+            detalle = correo.detalle_enviado(", ".join(para), ", ".join(copia))
             return self._resultado(con, datos, hasta, [f["nro"] for f in filas], detalle)
         return self._resultado(con, datos, hasta, None, error)
 

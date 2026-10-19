@@ -286,9 +286,9 @@ def correo_probar(con, destino="", leer=None, enviar=None, leer_cuenta=None, rel
         muestra = [p._asdict() for p in sorted(lectura.pesadas, key=lambda p: (p.FechaI, p.ID))[-5:]]
         nota = "El controlador no tiene pesadas, por eso no va el archivo de muestra."
         resumen = "sin archivo: el controlador no tiene pesadas"
-    except (ErrorControlador, ValueError, OSError) as e:
-        nota = "No se pudo leer el controlador (%s), por eso no va el archivo de muestra." % e
-        resumen = "sin archivo: no se pudo leer el controlador (%s)" % e
+    except (ErrorControlador, ValueError, OSError):
+        nota = "No se pudo leer el controlador %s, por eso no va el archivo de muestra." % cfg.get("ip", "")
+        resumen = "sin archivo: no se pudo leer el controlador %s" % cfg.get("ip", "")
     if muestra:
         archivo = "%s_prueba_%s.csv" % (correo.EQUIPO, momento.strftime("%Y%m%d_%H%M"))
         nota = ("Archivo adjunto de muestra: las últimas %d pesadas del controlador (no se guardan ni cuentan "

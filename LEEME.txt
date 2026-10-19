@@ -72,6 +72,8 @@
    Después de 5 claves incorrectas se bloquea el ingreso por 5 minutos. Como desde la web se puede cambiar la configuración y la web está publicada en internet, conviene cambiar la clave: sudo cambiar-clave
 
 13a. Filtros y páginas de la web: Desde y Hasta permiten elegir la fecha y la hora de inicio de las pesadas (hora de Lima). Se incluye todo el minuto elegido en Hasta. Buscar aplica el rango junto con Producto e ID; Limpiar borra los filtros y vuelve a 5 filas. La tabla de correos está siempre visible y también empieza en 5 filas, con su propio selector de filas por página y botones Anterior/Siguiente. Cada tabla se pagina por separado; se puede consultar todo el historial de correos.
+    En los correos de tramo y de prueba enviados correctamente, Detalle muestra solo "Enviado a ...; copia ...", también para registros anteriores. Las alertas conservan su detalle de falla y dejan Tramo vacío. Los avisos del correo identifican al controlador por su IP, sin el puerto.
+    Pesadas y Configuración cambian dentro de la misma página, sin recargarla. Se conservan los filtros, páginas y campos en edición al alternar entre secciones. También funcionan Atrás/Adelante del navegador y los enlaces directos a / y /configuracion.
 
     Exportar a Excel descarga un archivo .xlsx con todas las pesadas que coinciden con los filtros de fecha, hora, Producto e ID, sin limitarse a las filas de la página. Si no se eligió ningún filtro, pide confirmación antes de exportar toda la base. Los pesos son números y las fechas son fechas de Excel (hora de Lima). Sin coincidencias, se descarga la hoja con sus encabezados.
 

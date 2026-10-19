@@ -113,10 +113,16 @@ def _hora_config(texto):
 
 
 def _correo_json(c):
-    tramo = correo.rango(c["desde"], c["hasta"]) if c["desde"] and c["hasta"] else "—"
+    tramo = correo.rango(c["desde"], c["hasta"]) if c["desde"] and c["hasta"] else ""
+    detalle = c["detalle"] or ""
+    if c["tipo"] in ("tramo", "prueba") and c["resultado"] == "OK":
+        # También simplifica los registros anteriores sin modificar su historial.
+        detalle = correo.detalle_enviado(c.get("para"), c.get("copia"))
+    if c["tipo"] == "alerta":
+        tramo = ""
     return {"nro": c["nro"], "enviado_en": formato.fecha_segundos(c["enviado_en"]), "tipo": c["tipo"],
             "tramo": tramo, "pesadas": c["pesadas"], "resultado": c["resultado"],
-            "archivo": c["archivo"] or "", "detalle": c["detalle"] or ""}
+            "archivo": c["archivo"] or "", "detalle": detalle}
 
 
 def crear_app(ajustes, conectar=basedatos.conectar):
@@ -200,13 +206,13 @@ def crear_app(ajustes, conectar=basedatos.conectar):
 
     @app.get("/")
     def inicio():
-        return render_template("inicio.html", usuario=session.get("usuario"), version=VERSION,
-                               tamanos=TAMANOS)
+        return render_template("panel.html", vista="pesadas", usuario=session.get("usuario"), version=VERSION,
+                               tamanos=TAMANOS, csrf=session.get("csrf", ""))
 
     @app.get("/configuracion")
     def configuracion():
-        return render_template("configuracion.html", usuario=session.get("usuario"), version=VERSION,
-                               csrf=session.get("csrf", ""))
+        return render_template("panel.html", vista="configuracion", usuario=session.get("usuario"), version=VERSION,
+                               tamanos=TAMANOS, csrf=session.get("csrf", ""))
 
     def con_base(funcion):
         try:
