@@ -1,0 +1,94 @@
+1. Qué hace: la Raspberry pide la tabla de pesadas al controlador Rice Lake 1280 y la guarda en una base MySQL (MariaDB) sin repetir pesadas. Se usa con comandos en la terminal de la Pi y se consulta también en una página web de solo lectura. Al controlador solo se le hacen consultas: no se cambia nada en él y Captura 1280 puede seguir funcionando. El sistema anterior (correos, puerto 8080) no se toca.
+
+2. Raspberry: intradevco (Tailscale 100.118.130.78), usuario intradevco. Para instalar necesita internet. Para trabajar necesita estar en una red que llegue al controlador (10.30.211.141, puerto 10001).
+
+3. Descomprimir el zip en la laptop. Desde PowerShell de Windows (la línea empieza con PS C:\Users\...), copiar la carpeta a la Pi:
+    scp -r "C:\Users\Victor\Downloads\registro_pesadas_1280" intradevco@100.118.130.78:~/
+   Si la laptop y la Pi están en la misma red, también se puede usar la IP local de la Pi en vez de 100.118.130.78.
+
+4. Entrar a la Pi e instalar (tarda unos minutos):
+    ssh intradevco@100.118.130.78
+    cd ~/registro_pesadas_1280
+    sudo bash instalar.sh
+   Debe terminar en "Listo". Si dice que el puerto 8081 está ocupado: sudo PUERTO_WEB=8082 bash instalar.sh
+
+5. Ver y probar el controlador:
+    controlador
+    controlador probar
+   Debe responder: V2.03.01 1280. Para cambiar la IP o el puerto: controlador 10.30.211.141 10001
+
+6. Ver lo que manda el controlador, igual que en PowerShell (se ven los <CR><LF> del final de cada línea):
+    mostrar "VERSION"
+    mostrar "DB.SCHEMA#2"
+    mostrar "DB.DATA#2" 1000000
+   El número es el máximo de caracteres que se leen (1000000 alcanza de sobra para las 3000 pesadas). Solo se aceptan comandos de lectura: VERSION, XG#n, DB.ALIAS#n, DB.SCHEMA#n, DB.DATA#n. Cualquier otro se rechaza sin enviarlo.
+
+7. Guardar en MySQL:
+    guardar
+   La primera vez guarda todas las que tenga el controlador (hasta 3000):
+    Descarga completa: 3,000 pesadas en 4.2 s
+    Nuevas: 3,000 | Actualizadas: 0 | Ya estaban: 0
+    Total en la base: 3,000 pesadas
+
+8. Ver la base:
+    visualizar          todas las pesadas guardadas y el total al final
+    visualizar 20       solo las últimas 20
+
+9. Volver a guardar, por ejemplo 1 minuto después. Solo se agregan las nuevas: si en ese minuto hubo 5 pesadas, el total queda en 3,005 (no 6,005):
+    guardar
+    Nuevas: 5 | Actualizadas: 0 | Ya estaban: 2,995
+    Total en la base: 3,005 pesadas
+   Cada pesada se identifica por ID + FechaI (el controlador reinicia su contador de ID, por eso no basta el ID). Cuando el controlador llega a 3000 y sobrescribe las más antiguas, en la base no se pierde ni se repite ninguna.
+
+10. Guardado automático (bucle):
+    bucle 5             guarda cada 5 minutos, empezando ahora
+    bucle 1             guarda cada 1 minuto
+    bucle               muestra si está activo y las últimas descargas
+    bucle detener       detiene el guardado automático
+   Una vez iniciado sigue funcionando aunque se cierre la ventana o se reinicie la Pi, hasta escribir bucle detener. Si una descarga falla (controlador apagado, red, respuesta cortada) no se guarda nada a medias y se vuelve a intentar en la siguiente.
+
+11. Página web (solo lectura: se ven todas las pesadas y todas las columnas, no se puede editar ni borrar):
+    http://IP-DE-LA-PI:8081   o por Tailscale   http://100.118.130.78:8081
+    Usuario: intradevco   Clave: intradevco
+   Después de 5 claves incorrectas se bloquea el ingreso por 5 minutos. Para cambiar el usuario o la clave: sudo cambiar-clave
+
+12. Publicar la web en internet con Tailscale Funnel (para abrirla sin tener Tailscale):
+    sudo tailscale funnel --bg --https=443 8081
+   La primera vez Tailscale pide aprobar Funnel: lo aprueba el administrador de la cuenta subelrobotin en el enlace que aparece. Ver la dirección pública (https://intradevco....ts.net):
+    tailscale funnel status
+   Queda activo aunque se reinicie la Pi. Para quitarlo:
+    sudo tailscale funnel --https=443 off
+
+13. La base se llama registro1280 y la tabla pesadas, con las columnas del controlador: ID, cor, Producto, Peso, Acum, FechaI, FechaF, Turno, Estado, más nro (número en la base), guardado_en (cuándo se guardó) y actualizado_en (si el controlador cambió algún dato después). También se puede consultar directo en MySQL:
+    mariadb registro1280 -e "SELECT COUNT(*) FROM pesadas"
+   Otras tablas: descargas (cada descarga con su resultado), rechazadas (filas del controlador con datos inválidos, guardadas tal cual llegaron) y configuracion.
+
+14. Respaldo: cada día a partir de las 3:00 se guarda una copia de la base en /var/lib/registro1280/respaldos (se conservan las últimas 7). Las pesadas nunca se borran solas.
+
+15. Probar sin el controlador (por ejemplo en la oficina): en otra ventana SSH dejar corriendo el simulador, que agrega una pesada cada 12 segundos:
+    python3 /opt/registro1280/pruebas/simulador_1280.py --puerto 10001 --cada 12
+   y en la ventana de trabajo:
+    controlador 127.0.0.1 10001
+   Al terminar: Ctrl+C en el simulador, borrar las pesadas de prueba y volver a poner el controlador real:
+    bucle detener
+    sudo vaciar-base
+    controlador 10.30.211.141 10001
+
+16. Ver si los servicios están funcionando y su registro:
+    systemctl status registro1280-bucle registro1280-web
+    sudo journalctl -u registro1280-bucle -f
+    sudo systemctl restart registro1280-bucle registro1280-web
+
+17. Pruebas automáticas (usan una base de prueba aparte y el simulador; no tocan la base real):
+    cd /opt/registro1280/pruebas
+    sudo python3 -m unittest discover -s . -p "test_*.py"
+   Deben terminar en OK.
+
+18. Actualizar a una versión nueva desde GitHub (los cambios se suben al repositorio Gerencia-subel/registro-pesadas-1280):
+    sudo actualizar estado      muestra la versión instalada y los cambios nuevos
+    sudo actualizar             baja la versión nueva, corre las pruebas y solo si pasan la instala
+    sudo actualizar volver      vuelve a la versión anterior
+   Se conservan las pesadas, la configuración, el bucle y la clave de la web. La Pi solo lee el repositorio (llave de solo lectura).
+   Preparación (una sola vez): sudo actualizar configurar  muestra una llave; agregarla en GitHub > registro-pesadas-1280 > Settings > Deploy keys > Add deploy key (sin marcar "Allow write access").
+
+19. Desinstalar: sudo bash /opt/registro1280/desinstalar.sh (la base se conserva; con --borrar-datos se borra también).

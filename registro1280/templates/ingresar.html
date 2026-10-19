@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ingresar – Registro de pesadas</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2314212c'/%3E%3Ctext x='32' y='42' font-family='Arial' font-weight='700' font-size='26' text-anchor='middle' fill='%23f0b23a'%3Ekg%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="{{ url_for('static', filename='estilo.css') }}">
+</head>
+<body class="pagina-ingreso">
+<main class="ingreso">
+  <h1>Registro de pesadas</h1>
+  <p class="sub">Indicador Rice Lake 1280 – Intradevco</p>
+  <form method="post" class="tarjeta" autocomplete="on">
+    <label for="usuario">Usuario</label>
+    <input id="usuario" name="usuario" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+    <label for="clave">Clave</label>
+    <input id="clave" name="clave" type="password" autocomplete="current-password" required>
+    {% if error %}<p class="mensaje error" role="alert">{{ error }}</p>{% endif %}
+    <button type="submit" class="primario">Ingresar</button>
+  </form>
+  <p class="version">Versión {{ version }}</p>
+</main>
+</body>
+</html>

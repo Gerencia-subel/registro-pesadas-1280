@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Registro de pesadas – Rice Lake 1280</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2314212c'/%3E%3Ctext x='32' y='42' font-family='Arial' font-weight='700' font-size='26' text-anchor='middle' fill='%23f0b23a'%3Ekg%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="{{ url_for('static', filename='estilo.css') }}">
+</head>
+<body>
+<header class="barra">
+  <div>
+    <h1>Registro de pesadas</h1>
+    <p class="sub">Indicador Rice Lake 1280 – Intradevco</p>
+  </div>
+  <div class="sesion">
+    <span>{{ usuario }}</span>
+    <a href="{{ url_for('salir') }}">Salir</a>
+  </div>
+</header>
+
+<section class="pantalla" aria-label="Estado">
+  <div class="lectura principal">
+    <h2>Pesadas en la base</h2>
+    <p class="cifra" id="total">–</p>
+    <p class="detalle" id="rango"></p>
+  </div>
+  <div class="lectura">
+    <h2>Última descarga</h2>
+    <p class="valor" id="descarga">–</p>
+    <p class="detalle" id="descarga-detalle"></p>
+  </div>
+  <div class="lectura">
+    <h2>Guardado automático</h2>
+    <p class="valor" id="bucle">–</p>
+    <p class="detalle" id="bucle-detalle"></p>
+  </div>
+  <div class="lectura">
+    <h2>Controlador</h2>
+    <p class="valor" id="controlador">–</p>
+    <p class="detalle" id="hora"></p>
+  </div>
+</section>
+
+<main>
+  <form id="filtros" class="filtros">
+    <div class="campo"><label for="desde">Desde (fecha de inicio)</label><input type="date" id="desde" name="desde"></div>
+    <div class="campo"><label for="hasta">Hasta (fecha de inicio)</label><input type="date" id="hasta" name="hasta"></div>
+    <div class="campo ancho"><label for="producto">Producto</label><input id="producto" name="producto" maxlength="60" placeholder="Parte del nombre"></div>
+    <div class="campo"><label for="id">ID</label><input id="id" name="id" inputmode="numeric" pattern="[0-9]*" maxlength="10"></div>
+    <div class="campo"><label for="por_pagina">Filas por página</label>
+      <select id="por_pagina" name="por_pagina">
+        {% for t in tamanos %}<option value="{{ t }}"{% if t == 100 %} selected{% endif %}>{{ t }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="botones">
+      <button type="submit" class="primario">Buscar</button>
+      <button type="button" id="limpiar">Limpiar</button>
+    </div>
+  </form>
+
+  <p class="mensaje" id="mensaje" role="status"></p>
+
+  <div class="tabla-caja" tabindex="0" aria-label="Pesadas guardadas">
+    <table>
+      <thead>
+        <tr>
+          <th class="n">N°</th><th class="n">ID</th><th class="n">cor</th><th>Producto</th>
+          <th class="n">Peso</th><th class="n">Acum</th><th title="Fecha de inicio">FechaI</th><th title="Fecha de fin">FechaF</th>
+          <th class="n">Turno</th><th class="n">Estado</th><th>Guardado</th>
+        </tr>
+      </thead>
+      <tbody id="filas"><tr><td colspan="11" class="vacio">Cargando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <nav class="paginas" aria-label="Páginas">
+    <button type="button" id="anterior">Anterior</button>
+    <span id="pagina-texto"></span>
+    <button type="button" id="siguiente">Siguiente</button>
+  </nav>
+  <p class="version">Solo lectura. Versión {{ version }}</p>
+</main>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+[Unit]
+Description=Registro de pesadas 1280 - pagina web de consulta (solo lectura)
+After=network-online.target mariadb.service
+Wants=network-online.target mariadb.service
+
+[Service]
+Type=simple
+User=registro1280web
+Group=registro1280web
+WorkingDirectory=/opt/registro1280
+ExecStart=/usr/bin/python3 -m registro1280 servicio-web
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=-/run/mysqld
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
