@@ -34,6 +34,7 @@ class Simulador:
         self.filas = []
         self.siguiente_id = primer_id
         self.modo = "normal"
+        self.data_sin_respuesta = 0  # cuántos pedidos de DB.DATA#2 ignorar (controlador ocupado)
         self.comandos = []          # comandos recibidos (para las pruebas)
         self.conexiones = 0
         self.reloj = reloj or datetime.now
@@ -126,6 +127,9 @@ class Simulador:
             con.sendall(("%d,%d,%s\r\n" % (self.maximo, len(filas), ESQUEMA)).encode("ascii"))
             return True
         if comando == "DB.DATA#2":
+            if self.data_sin_respuesta > 0:
+                self.data_sin_respuesta -= 1
+                return True
             datos = "".join(f + "\r\n" for f in filas).encode("latin-1")
             if modo == "corta":       # se corta a la mitad
                 con.sendall(datos[: len(datos) // 2])

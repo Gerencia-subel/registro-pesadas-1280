@@ -38,6 +38,10 @@ class ErrorControlador(Exception):
     """Falla de conexión o respuesta inválida del controlador."""
 
 
+class SinRespuesta(ErrorControlador):
+    """El controlador aceptó la conexión pero no contestó (puede estar ocupado un momento)."""
+
+
 def normalizar_comando(comando):
     """Devuelve el comando en mayúsculas si es de solo lectura; si no, lanza ValueError."""
     limpio = (comando or "").strip().upper()
@@ -56,8 +60,9 @@ def enviar_comando(ip, puerto, comando, *, conexion=5.0, primera_respuesta=8.0,
     El controlador no marca el final de la respuesta, así que se lee hasta que:
     - ``completo(buffer)`` diga que ya llegó todo (y luego 0,3 s sin datos),
     - o pasen ``silencio`` segundos sin recibir nada,
-    - o se llegue a ``maximo_bytes``,
     - o el controlador cierre la conexión.
+    Con ``maximo_bytes`` se devuelve solo esa cantidad, pero se termina de recibir el resto
+    (hasta 0,5 s sin datos) para no dejar al controlador a mitad de un envío.
     """
     comando = normalizar_comando(comando)
     inicio = time.monotonic()
@@ -68,6 +73,7 @@ def enviar_comando(ip, puerto, comando, *, conexion=5.0, primera_respuesta=8.0,
     except OSError as e:
         raise ErrorControlador("No se pudo conectar a %s:%s (%s)" % (ip, puerto, _motivo(e)))
     datos = bytearray()
+    lleno = False
     try:
         sock.sendall((comando + "\r").encode("ascii"))
         sock.settimeout(0.2)
@@ -78,24 +84,31 @@ def enviar_comando(ip, puerto, comando, *, conexion=5.0, primera_respuesta=8.0,
                 raise ErrorControlador("La respuesta tardó más de %d s" % maximo_segundos)
             if ultimo_dato is None:
                 if ahora - inicio > primera_respuesta:
-                    raise ErrorControlador("El controlador no respondió al comando %s" % comando)
+                    raise SinRespuesta("El controlador no respondió al comando %s" % comando)
             else:
-                espera = 0.3 if (completo is not None and completo(datos)) else silencio
+                if lleno:
+                    espera = 0.5
+                elif completo is not None and completo(datos):
+                    espera = 0.3
+                else:
+                    espera = silencio
                 if ahora - ultimo_dato >= espera:
                     break
-            if maximo_bytes is not None and len(datos) >= maximo_bytes:
-                break
             try:
                 trozo = sock.recv(65536)
             except socket.timeout:
                 continue
             except OSError as e:
+                if lleno:
+                    break
                 raise ErrorControlador("Se cortó la conexión (%s)" % _motivo(e))
             if not trozo:  # el controlador cerró la conexión
                 if ultimo_dato is None:
-                    raise ErrorControlador("El controlador cerró la conexión sin responder")
+                    raise SinRespuesta("El controlador cerró la conexión sin responder")
                 break
-            datos.extend(trozo)
+            if not lleno:
+                datos.extend(trozo)
+                lleno = maximo_bytes is not None and len(datos) >= maximo_bytes
             ultimo_dato = time.monotonic()
     finally:
         try:
@@ -236,20 +249,32 @@ def interpretar_tabla(respuesta, esperadas):
     return pesadas, rechazadas
 
 
-def leer_pesadas(ip, puerto):
-    """Descarga la tabla Pesadas completa. Lanza ErrorControlador si algo falla."""
+def leer_pesadas(ip, puerto, intentos=3, pausa=3.0, primera_respuesta=8.0, dormir=time.sleep):
+    """Descarga la tabla Pesadas completa. Lanza ErrorControlador si algo falla.
+
+    Si el controlador no contesta el pedido de la tabla (por ejemplo, porque justo está
+    atendiendo a Captura 1280), se espera unos segundos y se vuelve a pedir.
+    """
     inicio = time.monotonic()
     _, actuales, _ = leer_esquema(
-        texto(enviar_comando(ip, puerto, "DB.SCHEMA#2", silencio=1.0, completo=una_linea)),
+        texto(enviar_comando(ip, puerto, "DB.SCHEMA#2", silencio=1.0, completo=una_linea,
+                             primera_respuesta=primera_respuesta)),
         columnas=COLUMNAS,
     )
     if actuales == 0:
         return Lectura([], [], 0, time.monotonic() - inicio)
-    # Mientras falten filas se toleran pausas de hasta 5 s.
-    datos = enviar_comando(
-        ip, puerto, "DB.DATA#2", silencio=5.0,
-        completo=lambda buf: contar_lineas(buf) >= actuales,
-    )
+    for intento in range(1, intentos + 1):
+        try:
+            # Mientras falten filas se toleran pausas de hasta 5 s.
+            datos = enviar_comando(
+                ip, puerto, "DB.DATA#2", silencio=5.0, primera_respuesta=primera_respuesta,
+                completo=lambda buf: contar_lineas(buf) >= actuales,
+            )
+            break
+        except SinRespuesta:
+            if intento >= intentos:
+                raise
+            dormir(pausa)
     pesadas, rechazadas = interpretar_tabla(texto(datos), actuales)
     return Lectura(pesadas, rechazadas, actuales, time.monotonic() - inicio)
 

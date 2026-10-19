@@ -112,6 +112,19 @@ class ConSimulador(unittest.TestCase):
         with self.assertRaises(ErrorControlador):
             leer_pesadas("127.0.0.1", self.sim.puerto)
 
+    def test_ocupado_un_momento_se_vuelve_a_pedir(self):
+        self.sim.data_sin_respuesta = 1          # el primer pedido de la tabla no recibe respuesta
+        l = leer_pesadas("127.0.0.1", self.sim.puerto, primera_respuesta=1.0, dormir=lambda s: None)
+        self.assertEqual(len(l.pesadas), 3000)
+        self.assertEqual(self.sim.comandos, ["DB.SCHEMA#2", "DB.DATA#2", "DB.DATA#2"])
+
+    def test_tabla_sin_respuesta(self):
+        self.sim.data_sin_respuesta = 10
+        with self.assertRaises(ErrorControlador) as e:
+            leer_pesadas("127.0.0.1", self.sim.puerto, primera_respuesta=1.0, dormir=lambda s: None)
+        self.assertIn("no respondió al comando DB.DATA#2", str(e.exception))
+        self.assertEqual(self.sim.comandos.count("DB.DATA#2"), 3)
+
     def test_sin_conexion(self):
         puerto = self.sim.puerto
         self.sim.cerrar()
