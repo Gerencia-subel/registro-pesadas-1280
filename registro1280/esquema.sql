@@ -56,7 +56,31 @@ CREATE TABLE IF NOT EXISTS rechazadas (
   UNIQUE KEY por_linea (linea)
 ) ENGINE=InnoDB;
 
--- Configuración: IP y puerto del controlador, y el bucle.
+-- Envío por correo: cada pesada se marca con el número del correo que la envió, así
+-- ninguna se envía dos veces. NULL = todavía no se envió. 0 = ya estaba guardada cuando
+-- se activó el correo (no se envía). Las que llegan tarde van en el siguiente correo.
+ALTER TABLE pesadas ADD COLUMN IF NOT EXISTS correo BIGINT UNSIGNED NULL
+  COMMENT 'N° del correo que la envió (0 = ya estaba al activar el correo; NULL = pendiente)';
+ALTER TABLE pesadas ADD INDEX IF NOT EXISTS por_correo (correo);
+
+-- Cada correo enviado (o intentado) con el CSV de un tramo, y los correos de prueba.
+CREATE TABLE IF NOT EXISTS correos (
+  nro          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  enviado_en   DATETIME      NOT NULL COMMENT 'Cuándo se envió o intentó',
+  tipo         VARCHAR(10)   NOT NULL COMMENT 'tramo o prueba',
+  desde        DATETIME      NULL     COMMENT 'Inicio del tramo',
+  hasta        DATETIME      NULL     COMMENT 'Fin del tramo',
+  pesadas      INT           NOT NULL DEFAULT 0 COMMENT 'Pesadas en el CSV',
+  resultado    VARCHAR(10)   NOT NULL COMMENT 'OK o ERROR',
+  para         VARCHAR(500)  NULL,
+  copia        VARCHAR(500)  NULL,
+  archivo      VARCHAR(100)  NULL     COMMENT 'Nombre del CSV adjunto',
+  detalle      VARCHAR(500)  NULL,
+  PRIMARY KEY (nro),
+  KEY por_enviado (enviado_en)
+) ENGINE=InnoDB;
+
+-- Configuración: IP y puerto del controlador, el bucle y el correo.
 CREATE TABLE IF NOT EXISTS configuracion (
   clave  VARCHAR(40)  NOT NULL,
   valor  VARCHAR(200) NOT NULL,
@@ -70,4 +94,12 @@ INSERT IGNORE INTO configuracion (clave, valor) VALUES
   ('bucle_minutos', '5'),
   ('bucle_cambiado', ''),
   ('latido', ''),
-  ('ultimo_respaldo', '');
+  ('ultimo_respaldo', ''),
+  ('correo_activo', '0'),
+  ('correo_minutos', '5'),
+  ('correo_para', ''),
+  ('correo_copia', ''),
+  ('correo_cuenta', ''),
+  ('correo_desde', ''),
+  ('correo_proximo', ''),
+  ('correo_latido', '');

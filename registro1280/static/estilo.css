@@ -76,7 +76,7 @@ button:disabled { opacity: .45; cursor: default; }
 /* ---------------------------------------------------------------- pantalla */
 .pantalla {
   display: grid;
-  grid-template-columns: 1.3fr 1.2fr 1fr 1fr;
+  grid-template-columns: 1.15fr 1.2fr 1fr 1.25fr 1fr;
   margin: 20px max(16px, calc((100% - 1360px) / 2)) 0;
   background: var(--pantalla);
   color: #fff;
@@ -137,6 +137,17 @@ td.actualizado { box-shadow: inset 3px 0 0 var(--ambar); }
 td.vacio { padding: 28px 12px; text-align: center; color: var(--suave); white-space: normal; }
 .marca { margin-left: 6px; font-size: 12px; color: #8a5a00; }
 
+.correos { margin: 22px 0 0; }
+.correos summary {
+  cursor: pointer;
+  font: 600 16px/1.3 "Barlow SC", "Barlow", sans-serif;
+  padding: 6px 0;
+}
+.correos .tabla-caja { max-height: 50vh; margin-top: 8px; }
+td.res-ok { color: var(--ok); font-weight: 600; }
+td.res-error { color: var(--error); font-weight: 600; }
+td.largo { white-space: normal; min-width: 260px; }
+
 .paginas { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 14px 0 4px; }
 .version { margin: 10px 0 0; color: var(--suave); font-size: 13px; text-align: center; }
 
@@ -161,14 +172,16 @@ td.vacio { padding: 28px 12px; text-align: center; color: var(--suave); white-sp
 /* ---------------------------------------------------------------- pantallas chicas */
 @media (max-width: 1050px) {
   .pantalla { grid-template-columns: 1fr 1fr; }
-  .lectura:nth-child(3) { border-left: 0; }
+  .lectura:nth-child(odd) { border-left: 0; }
   .lectura:nth-child(n+3) { border-top: 1px solid var(--pantalla-linea); }
+  .lectura:nth-child(5) { grid-column: span 2; }
   .filtros { grid-template-columns: 1fr 1fr 1fr; }
   .campo.ancho { grid-column: span 2; }
 }
 @media (max-width: 620px) {
   .barra { align-items: flex-start; }
   .pantalla { grid-template-columns: 1fr; }
+  .lectura:nth-child(5) { grid-column: auto; }
   .lectura { border-left: 0; border-top: 1px solid var(--pantalla-linea); }
   .lectura:first-child { border-top: 0; }
   .cifra { font-size: 40px; }

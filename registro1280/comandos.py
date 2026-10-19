@@ -1,16 +1,17 @@
-"""Comandos de la terminal: mostrar, guardar, visualizar, bucle, controlador, cambiar-clave."""
+"""Comandos de la terminal: mostrar, guardar, visualizar, bucle, correo, controlador, cambiar-clave."""
 
 import getpass
 import ipaddress
 import os
+import socket
 import subprocess
 import sys
-import time
 from datetime import datetime
 
-from . import basedatos, formato
+from . import basedatos, correo as correo_gmail, formato
 from .basedatos import ErrorBase
-from .controlador import ErrorControlador, consultar, normalizar_comando
+from .controlador import ErrorControlador, consultar, leer_pesadas, normalizar_comando
+from .envio import leer_fecha, minutos_config, siguiente_envio, texto_fecha
 from .guardado import guardar as guardar_ahora
 from .reloj import ahora
 
@@ -134,14 +135,14 @@ def visualizar(argumentos):
 
 
 # ------------------------------------------------------------------ bucle
-def _estado_servicio(cfg):
-    latido = cfg.get("latido") or ""
+def _estado_servicio(cfg, clave="latido", nombre="del bucle"):
+    latido = cfg.get(clave) or ""
     try:
         edad = (ahora() - datetime.strptime(latido, "%Y-%m-%d %H:%M:%S")).total_seconds()
     except ValueError:
-        return False, "el servicio del bucle no ha dado señales"
+        return False, "el servicio %s no ha dado señales" % nombre
     if edad > LATIDO_MAXIMO:
-        return False, "el servicio del bucle no responde (última señal hace %s)" % formato.hace(edad)
+        return False, "el servicio %s no responde (última señal hace %s)" % (nombre, formato.hace(edad))
     return True, "funcionando"
 
 
@@ -194,6 +195,245 @@ def bucle(argumentos):
             "" if d["segundos"] is None else "%.1f" % d["segundos"],
             "" if d["leidas"] is None else d["leidas"], "" if d["nuevas"] is None else d["nuevas"],
             "" if d["total"] is None else d["total"], d["detalle"] or ""))
+    return 0
+
+# ------------------------------------------------------------------ correo
+_USO_CORREO = """Uso: correo 5                    enviar cada 5 minutos el CSV con las pesadas nuevas de cada tramo
+     correo detener              detener el envío
+     correo                      ver el estado y los últimos correos
+     correo para a@x.com b@y.com destinatarios
+     correo copia a@x.com        copia (correo copia ninguna = sin copia)
+     sudo correo cuenta          cuenta de Gmail que envía (contraseña de aplicación)
+     sudo correo probar          enviar ahora un correo de prueba (sudo correo probar a@x.com: solo a esa dirección)"""
+
+
+def _hora(momento):
+    return momento.strftime("%H:%M") if momento else ""
+
+
+def correo(argumentos):
+    """correo 5 | correo detener | correo | correo para ... | correo copia ... | sudo correo cuenta | sudo correo probar"""
+    accion = argumentos[0].lower() if argumentos else "estado"
+    resto = argumentos[1:]
+    if accion == "cuenta":
+        return _correo_cuenta(resto)
+    if accion == "probar":
+        return _correo_probar(resto)
+    try:
+        con = _con()
+        if accion in ("detener", "parar", "stop"):
+            basedatos.guardar_config(con, correo_activo="0")
+            print("Envío por correo detenido. Para volver a activarlo: correo 5")
+            print("(Al activarlo de nuevo, lo que se guarde mientras esté detenido no se envía.)")
+            return 0
+        if accion in ("para", "copia"):
+            return _correo_direcciones(con, accion, resto)
+        if accion == "estado":
+            return _correo_estado(con)
+        try:
+            minutos = int(accion)
+            if minutos < 1:
+                raise ValueError
+        except ValueError:
+            return _salir(_USO_CORREO)
+        return _correo_activar(con, minutos)
+    except ErrorBase as e:
+        return _salir(str(e))
+
+
+def _correo_direcciones(con, accion, resto):
+    clave = "correo_para" if accion == "para" else "correo_copia"
+    if not resto:
+        actual = basedatos.config(con).get(clave) or "(ninguno)"
+        print("%s: %s" % ("Para" if accion == "para" else "Copia", actual))
+        return 0
+    texto = " ".join(resto)
+    if accion == "copia" and texto.strip().lower() in ("ninguna", "ninguno", "no", "-"):
+        basedatos.guardar_config(con, correo_copia="")
+        print("Sin copia.")
+        return 0
+    try:
+        lista = correo_gmail.direcciones(texto)
+    except ValueError as e:
+        return _salir(str(e))
+    if not lista:
+        return _salir(_USO_CORREO)
+    basedatos.guardar_config(con, **{clave: ", ".join(lista)})
+    print("%s: %s" % ("Para" if accion == "para" else "Copia", ", ".join(lista)))
+    return 0
+
+
+def _correo_activar(con, minutos):
+    cfg = basedatos.config(con)
+    if not correo_gmail.hay_cuenta():
+        return _salir("Primero configurar la cuenta de Gmail que envía:  sudo correo cuenta")
+    if not (cfg.get("correo_para") or "").strip():
+        return _salir("Primero indicar a quién se envía:  correo para nombre@empresa.com")
+    plural = "" if minutos == 1 else "s"
+    if cfg.get("correo_activo") == "1":
+        anterior = minutos_config(cfg)
+        proximo = leer_fecha(cfg.get("correo_proximo"))
+        basedatos.guardar_config(con, correo_minutos=str(minutos))
+        if minutos == anterior:
+            print("El correo ya está activo cada %d minuto%s. Próximo envío: %s." % (minutos, plural, _hora(proximo)))
+        else:
+            print("Intervalo cambiado a %d minuto%s. El próximo correo sale a las %s, como estaba programado; "
+                  "desde ahí, cada %d minuto%s." % (minutos, plural, _hora(proximo), minutos, plural))
+        return 0
+    print("Descargando el controlador para que lo que ya está registrado no se envíe...")
+    try:
+        guardar_ahora(con, "manual", reintentos=1)
+    except (ErrorControlador, ErrorBase) as e:
+        return _salir("No se activó el correo: no se pudo leer el controlador (%s).\n"
+                      "Revisar con: controlador probar  y volver a intentar." % e)
+    anteriores = basedatos.marcar_sin_enviar(con)
+    momento = ahora()
+    proximo = siguiente_envio(momento, minutos)
+    basedatos.guardar_config(con, correo_minutos=str(minutos), correo_desde=texto_fecha(momento),
+                             correo_proximo=texto_fecha(proximo), correo_activo="1")
+    print("Correo activado: cada %d minuto%s. Primer envío a las %s con las pesadas desde las %s."
+          % (minutos, plural, _hora(proximo), _hora(momento)))
+    print("Cada correo lleva solo las pesadas nuevas de su tramo; ninguna se envía dos veces.")
+    print("Lo que ya estaba guardado (%s pesadas) no se envía." % formato.numero(anteriores))
+    ok, texto = _estado_servicio(basedatos.config(con), "correo_latido", "del correo")
+    if not ok:
+        print("ATENCIÓN: %s. Revisar: sudo systemctl status registro1280-correo" % texto)
+    return 0
+
+
+def _correo_estado(con):
+    cfg = basedatos.config(con)
+    historial = basedatos.correos(con, 10)
+    activo = cfg.get("correo_activo") == "1"
+    minutos = minutos_config(cfg)
+    if activo:
+        print("Correo: activo, cada %d minuto%s" % (minutos, "" if minutos == 1 else "s"))
+        proximo, desde = leer_fecha(cfg.get("correo_proximo")), leer_fecha(cfg.get("correo_desde"))
+        if proximo:
+            print("Próximo envío: %s (pesadas desde %s)" % (formato.fecha(proximo), formato.fecha(desde)))
+        print("Pesadas pendientes de enviar: %s" % formato.numero(basedatos.contar_pendientes(con)))
+    else:
+        print("Correo: detenido. Para activarlo: correo 5")
+    ok, texto = _estado_servicio(cfg, "correo_latido", "del correo")
+    print("Servicio: %s" % texto)
+    cuenta = cfg.get("correo_cuenta") or ""
+    if not correo_gmail.hay_cuenta():
+        cuenta = "falta (sudo correo cuenta)"
+    print("Cuenta que envía: %s" % (cuenta or "configurada"))
+    print("Para: %s" % (cfg.get("correo_para") or "(falta: correo para nombre@empresa.com)"))
+    print("Copia: %s" % (cfg.get("correo_copia") or "(ninguna)"))
+    if not historial:
+        print("Todavía no se envió ningún correo.")
+        return 0
+    print("")
+    print("Últimos correos:")
+    print("%-6s %-19s %-6s %-29s %8s %-6s  %s" % ("N°", "Enviado", "Tipo", "Tramo", "Pesadas", "Result", "Detalle"))
+    for c in historial:
+        tramo = correo_gmail.rango(c["desde"], c["hasta"]) if c["desde"] and c["hasta"] else ""
+        print("%-6s %-19s %-6s %-29s %8s %-6s  %s" % (
+            c["nro"], formato.fecha_segundos(c["enviado_en"]), c["tipo"], tramo, c["pesadas"], c["resultado"],
+            c["detalle"] or ""))
+    return 0
+
+
+def _correo_cuenta(argumentos):
+    if os.geteuid() != 0:
+        return _salir("Usar con sudo:  sudo correo cuenta")
+    actual = ""
+    try:
+        actual = correo_gmail.leer_cuenta()["usuario"]
+    except correo_gmail.ErrorCorreo:
+        pass
+    if argumentos:
+        usuario = argumentos[0].strip()
+    else:
+        usuario = input("Correo de Gmail que envía%s: " % (" [%s]" % actual if actual else "")).strip() or actual
+    try:
+        lista = correo_gmail.direcciones(usuario)
+        if len(lista) != 1:
+            raise ValueError("Indicar una sola dirección de Gmail.")
+    except ValueError as e:
+        return _salir(str(e))
+    usuario = lista[0]
+    clave = getpass.getpass("Contraseña de aplicación de Gmail (no se ve al escribir; Enter al terminar): ")
+    clave = "".join(clave.split())
+    if not clave:
+        return _salir("No se escribió la contraseña. No se cambió nada.")
+    if len(clave) != 16:
+        print("Atención: la contraseña de aplicación de Gmail tiene 16 letras y esta tiene %d." % len(clave))
+    cuenta = {"usuario": usuario, "clave": clave, "servidor": correo_gmail.SERVIDOR, "puerto": correo_gmail.PUERTO,
+              "seguridad": "starttls", "nombre": correo_gmail.NOMBRE}
+    print("Probando la cuenta en Gmail...")
+    try:
+        correo_gmail.probar_cuenta(cuenta)
+        print("Gmail aceptó la cuenta.")
+    except correo_gmail.ErrorCorreo as e:
+        if not e.reintentar:
+            return _salir("No se guardó la cuenta. %s" % e)
+        print("No se pudo comprobar ahora: %s Se guarda igual; probar luego con: sudo correo probar" % e)
+    correo_gmail.guardar_cuenta(usuario, clave)
+    try:
+        basedatos.guardar_config(_con(), correo_cuenta=usuario)
+    except ErrorBase as e:
+        print("Aviso: %s" % e)
+    print("Cuenta guardada: %s. La contraseña queda solo en esta Raspberry (%s)." % (usuario, correo_gmail.RUTA))
+    return 0
+
+
+def _correo_probar(argumentos):
+    if os.geteuid() != 0:
+        return _salir("Usar con sudo:  sudo correo probar")
+    try:
+        con = _con()
+        cfg = basedatos.config(con)
+        cuenta = correo_gmail.leer_cuenta()
+        if argumentos:
+            para, copia = correo_gmail.direcciones(" ".join(argumentos)), []
+        else:
+            para = correo_gmail.direcciones(cfg.get("correo_para"))
+            copia = correo_gmail.direcciones(cfg.get("correo_copia"))
+        if not para:
+            return _salir("No hay destinatarios. Indicarlos con:  correo para nombre@empresa.com")
+    except (ErrorBase, correo_gmail.ErrorCorreo, ValueError) as e:
+        return _salir(str(e))
+    momento = ahora()
+    muestra, archivo = [], None
+    print("Leyendo el controlador para adjuntar una muestra del archivo...")
+    try:
+        lectura = leer_pesadas(cfg.get("ip"), int(cfg.get("puerto")))
+        muestra = [p._asdict() for p in sorted(lectura.pesadas, key=lambda p: (p.FechaI, p.ID))[-5:]]
+        nota = "El controlador no tiene pesadas, por eso no va el archivo de muestra."
+    except (ErrorControlador, ValueError, OSError) as e:
+        nota = "No se pudo leer el controlador (%s), por eso no va el archivo de muestra." % e
+    if muestra:
+        archivo = "pesadas_prueba_%s.csv" % momento.strftime("%Y%m%d_%H%M")
+        nota = ("Archivo adjunto de muestra: las últimas %d pesadas del controlador (no se guardan ni cuentan "
+                "como enviadas)." % len(muestra))
+    cuerpo = ("Correo de prueba del registro de pesadas del Rice Lake 1280 (Raspberry %s), enviado el %s.\n\n"
+              "Los envíos automáticos llegan con el asunto, por ejemplo:\n"
+              "Pesadas 19/10/2026 09:10 - 09:15 - 12 pesadas\n"
+              "y un archivo CSV solo con las pesadas nuevas de ese tramo.\n\n%s\n"
+              % (socket.gethostname(), formato.fecha(momento), nota))
+    mensaje = correo_gmail.armar_mensaje(cuenta, para, copia, "Prueba - Registro de pesadas 1280", cuerpo,
+                                         correo_gmail.armar_csv(muestra) if muestra else None, archivo)
+    print("Enviando a: %s%s ..." % (", ".join(para), " (copia: %s)" % ", ".join(copia) if copia else ""))
+    error, no_aceptados = None, ""
+    try:
+        no_aceptados = correo_gmail.enviar(cuenta, mensaje) or ""
+    except correo_gmail.ErrorCorreo as e:
+        error = str(e)
+    try:
+        basedatos.registrar_correo(con, enviado_en=ahora(), tipo="prueba", pesadas=len(muestra),
+                                   resultado="ERROR" if error else "OK", para=", ".join(para),
+                                   copia=", ".join(copia), archivo=archivo, detalle=error or no_aceptados)
+    except ErrorBase:
+        pass
+    if error:
+        return _salir("No se pudo enviar: %s" % error)
+    print("Correo de prueba enviado.%s" % (" Lleva de muestra %d pesadas del controlador." % len(muestra)
+                                          if muestra else ""))
+    if no_aceptados:
+        print(no_aceptados)
     return 0
 
 
@@ -256,17 +496,19 @@ def vaciar_base(argumentos):
         n = basedatos.total(con)
     except ErrorBase as e:
         return _salir(str(e))
-    print("Se van a borrar las %s pesadas guardadas, el historial de descargas y las filas rechazadas."
-          % formato.numero(n))
-    print("La configuración (IP del controlador y bucle) se conserva. Esto no se puede deshacer.")
+    print("Se van a borrar las %s pesadas guardadas, el historial de descargas y de correos, y las filas "
+          "rechazadas." % formato.numero(n))
+    print("La configuración (IP del controlador, bucle, destinatarios y cuenta de correo) se conserva. "
+          "El envío por correo queda detenido. Esto no se puede deshacer.")
     if input('Para confirmar escribir BORRAR: ').strip() != "BORRAR":
         print("No se borró nada.")
         return 1
+    basedatos.guardar_config(con, correo_activo="0", correo_desde="", correo_proximo="")
     cur = con.cursor()
-    for tabla in ("pesadas", "descargas", "rechazadas"):
+    for tabla in ("pesadas", "descargas", "rechazadas", "correos"):
         cur.execute("TRUNCATE TABLE %s" % tabla)
     con.commit()
-    print("Listo. La base quedó vacía.")
+    print("Listo. La base quedó vacía. Para volver a enviar por correo: correo 5")
     return 0
 
 
@@ -275,6 +517,7 @@ COMANDOS = {
     "guardar": guardar,
     "visualizar": visualizar,
     "bucle": bucle,
+    "correo": correo,
     "controlador": controlador,
     "cambiar-clave": cambiar_clave,
     "vaciar-base": vaciar_base,

@@ -1,7 +1,7 @@
 """Punto de entrada: python3 -m registro1280 <comando> [argumentos]
 
-Comandos de la terminal: mostrar, guardar, visualizar, bucle, controlador.
-Servicio: servicio-bucle (lo arranca systemd).
+Comandos de la terminal: mostrar, guardar, visualizar, bucle, correo, controlador.
+Servicios: servicio-bucle, servicio-correo y servicio-web (los arranca systemd).
 """
 
 import logging
@@ -21,6 +21,12 @@ def main(argv=None):
         print("  bucle 5                 guardar cada 5 minutos, siempre")
         print("  bucle detener           detener el guardado automático")
         print("  bucle                   ver el estado del bucle y las últimas descargas")
+        print("  correo 5                enviar por correo cada 5 minutos el CSV con las pesadas nuevas")
+        print("  correo detener          detener el envío por correo")
+        print("  correo                  ver el estado del correo y los últimos envíos")
+        print("  correo para / copia     destinatarios (correo para nombre@empresa.com)")
+        print("  sudo correo cuenta      cuenta de Gmail que envía (contraseña de aplicación)")
+        print("  sudo correo probar      enviar ahora un correo de prueba")
         print("  controlador [IP PUERTO] ver o cambiar la IP del controlador; controlador probar")
         print("  sudo cambiar-clave      cambiar el usuario y la clave de la web")
         print("  sudo vaciar-base        borrar todas las pesadas (después de probar con el simulador)")
@@ -28,6 +34,8 @@ def main(argv=None):
     comando, argumentos = argv[0], argv[1:]
     if comando == "servicio-bucle":
         return _servicio_bucle()
+    if comando == "servicio-correo":
+        return _servicio_correo()
     if comando == "servicio-web":
         from .web import servir
         servir()
@@ -60,6 +68,16 @@ def _servicio_bucle():
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s", stream=sys.stdout)
     from .bucle import Bucle
     servicio = Bucle()
+    signal.signal(signal.SIGTERM, lambda *_: servicio.detener.set())
+    signal.signal(signal.SIGINT, lambda *_: servicio.detener.set())
+    servicio.correr()
+    return 0
+
+
+def _servicio_correo():
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s", stream=sys.stdout)
+    from .envio import ServicioCorreo
+    servicio = ServicioCorreo()
     signal.signal(signal.SIGTERM, lambda *_: servicio.detener.set())
     signal.signal(signal.SIGINT, lambda *_: servicio.detener.set())
     servicio.correr()

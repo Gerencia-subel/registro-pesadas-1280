@@ -1,6 +1,6 @@
 #!/bin/bash
 # Instala o actualiza el registro de pesadas del Rice Lake 1280 en la Raspberry Pi:
-# base de datos MariaDB (MySQL), comandos de la terminal, bucle automático y web.
+# base de datos MariaDB (MySQL), comandos de la terminal, bucle automático, envío por correo y web.
 # Uso (desde la carpeta copiada):   sudo bash instalar.sh
 # Otro puerto para la web:          sudo PUERTO_WEB=8082 bash instalar.sh
 set -euo pipefail
@@ -65,7 +65,8 @@ if [ "$ORIGEN" != "$DESTINO" ]; then
   rm -rf "$DESTINO/registro1280" "$DESTINO/pruebas"
   cp -r "$ORIGEN/registro1280" "$ORIGEN/pruebas" "$DESTINO/"
   cp "$ORIGEN/LEEME.txt" "$ORIGEN/instalar.sh" "$ORIGEN/desinstalar.sh" "$ORIGEN/actualizar.sh" \
-     "$ORIGEN/registro1280-bucle.service" "$ORIGEN/registro1280-web.service" "$DESTINO/"
+     "$ORIGEN/registro1280-bucle.service" "$ORIGEN/registro1280-web.service" \
+     "$ORIGEN/registro1280-correo.service" "$DESTINO/"
 fi
 find "$DESTINO" -name "__pycache__" -type d -prune -exec rm -rf {} +
 chown -R root:root "$DESTINO"
@@ -104,7 +105,7 @@ fi
 mariadb -e "FLUSH PRIVILEGES"
 
 echo "6/7 Creando los comandos de la terminal..."
-for c in mostrar guardar visualizar bucle controlador cambiar-clave vaciar-base; do
+for c in mostrar guardar visualizar bucle correo controlador cambiar-clave vaciar-base; do
   cat > "/usr/local/bin/$c" <<EOF
 #!/bin/sh
 # Registro de pesadas 1280: comando $c
@@ -119,23 +120,28 @@ exec bash /opt/registro1280/actualizar.sh "$@"
 EOF2
 chmod 755 /usr/local/bin/actualizar
 
-echo "7/7 Creando e iniciando los servicios (bucle y web)..."
+echo "7/7 Creando e iniciando los servicios (bucle, correo y web)..."
 mkdir -p "$ETC"
 chmod 755 "$ETC"
 (cd "$DESTINO" && "$PY" -m registro1280 preparar-web "$PUERTO" >/dev/null)
 chown root:registro1280web "$INI"
 chmod 640 "$INI"
+if [ -f "$ETC/correo.ini" ]; then   # cuenta de Gmail: solo root y el servicio del correo
+  chown root:registro1280 "$ETC/correo.ini"
+  chmod 640 "$ETC/correo.ini"
+fi
 if [ -d "$ORIGEN/.git" ] && command -v git >/dev/null; then
   git -C "$ORIGEN" rev-parse HEAD > "$ETC/version_instalada" 2>/dev/null || true
 fi
-cp "$DESTINO/registro1280-bucle.service" "$DESTINO/registro1280-web.service" /etc/systemd/system/
+cp "$DESTINO/registro1280-bucle.service" "$DESTINO/registro1280-web.service" "$DESTINO/registro1280-correo.service" \
+   /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable registro1280-bucle registro1280-web >/dev/null 2>&1
-systemctl restart registro1280-bucle registro1280-web
+systemctl enable registro1280-bucle registro1280-web registro1280-correo >/dev/null 2>&1
+systemctl restart registro1280-bucle registro1280-web registro1280-correo
 sleep 4
 
 FALLA=0
-for s in registro1280-bucle registro1280-web; do
+for s in registro1280-bucle registro1280-web registro1280-correo; do
   if ! systemctl is-active --quiet "$s"; then
     echo
     echo "El servicio $s no arrancó. Detalle:"
@@ -154,6 +160,7 @@ echo "  mostrar \"DB.DATA#2\"     ver lo que manda el controlador"
 echo "  guardar                 guardar en la base solo las pesadas nuevas"
 echo "  visualizar              ver todas las pesadas guardadas"
 echo "  bucle 5                 guardar cada 5 minutos, siempre (bucle detener para pararlo)"
+echo "  correo 5                enviar por correo cada 5 minutos el CSV de las pesadas nuevas"
 echo "  controlador             ver o cambiar la IP del controlador"
 echo
 echo "Web (usuario y clave: intradevco):  http://${IP:-IP-DE-LA-RASPBERRY}:$PUERTO"

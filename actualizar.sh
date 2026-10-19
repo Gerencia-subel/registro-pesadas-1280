@@ -135,7 +135,7 @@ case "$accion" in
     git -C "$COPIA" reset -q --hard "$nueva"
     git -C "$COPIA" clean -q -fdx
 
-    echo "2/4 Corriendo las pruebas automáticas (unos 2 minutos)..."
+    echo "2/4 Corriendo las pruebas automáticas (unos 3 minutos)..."
     if ! (cd "$COPIA/pruebas" && python3 -m unittest discover -s . -p "test_*.py") > "$REGISTRO" 2>&1; then
       echo
       tail -n 25 "$REGISTRO"

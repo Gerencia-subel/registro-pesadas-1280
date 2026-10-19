@@ -17,7 +17,10 @@ import MySQLdb.cursors
 
 SOCKET = os.environ.get("REGISTRO1280_SOCKET", "/run/mysqld/mysqld.sock")
 BASE = os.environ.get("REGISTRO1280_BASE", "registro1280")
-CANDADO = "registro1280_guardar"
+# Los candados son de todo el servidor MariaDB: llevan el nombre de la base para que las
+# pruebas (base registro1280_prueba) nunca esperen ni choquen con los servicios reales.
+CANDADO = "%s_guardar" % BASE
+CANDADO_CORREO = "%s_correo" % BASE
 LOTE = 500
 
 COLUMNAS_PESADA = ("ID", "cor", "Producto", "Peso", "Acum", "FechaI", "FechaF", "Turno", "Estado")
@@ -160,6 +163,89 @@ def borrar_descargas_antiguas(con, antes_de):
     return cur.rowcount
 
 
+# ---------------------------------------------------------------- correo
+def pendientes_correo(con):
+    """Pesadas que todavía no salieron en ningún correo, en orden de FechaI."""
+    cur = con.cursor(MySQLdb.cursors.DictCursor)
+    cur.execute("SELECT nro, %s FROM pesadas WHERE correo IS NULL ORDER BY FechaI, nro"
+                % ", ".join(COLUMNAS_PESADA))
+    filas = list(cur.fetchall())
+    con.commit()
+    return filas
+
+
+def contar_pendientes(con):
+    cur = con.cursor()
+    cur.execute("SELECT COUNT(*) FROM pesadas WHERE correo IS NULL")
+    n = cur.fetchone()[0]
+    con.commit()
+    return int(n)
+
+
+def marcar_sin_enviar(con):
+    """Al activar el correo: lo que ya estaba guardado queda marcado con 0 y no se envía."""
+    cur = con.cursor()
+    cur.execute("UPDATE pesadas SET correo = 0 WHERE correo IS NULL")
+    n = cur.rowcount
+    con.commit()
+    return n
+
+
+def registrar_correo(con, nros_enviados=(), **campos):
+    """Anota un correo en la tabla correos y, si salió bien, marca sus pesadas (todo junto)."""
+    columnas = ("enviado_en", "tipo", "desde", "hasta", "pesadas", "resultado", "para", "copia",
+                "archivo", "detalle")
+    valores = [campos.get(c) for c in columnas]
+    for i in (6, 7, 9):
+        if valores[i]:
+            valores[i] = str(valores[i])[:500]
+    cur = con.cursor()
+    try:
+        cur.execute("INSERT INTO correos (%s) VALUES (%s)" % (", ".join(columnas), ", ".join(["%s"] * len(columnas))),
+                    valores)
+        nro = cur.lastrowid
+        nros = list(nros_enviados)
+        for i in range(0, len(nros), LOTE):
+            parte = nros[i:i + LOTE]
+            cur.execute("UPDATE pesadas SET correo = %%s WHERE correo IS NULL AND nro IN (%s)"
+                        % ", ".join(["%s"] * len(parte)), [nro] + parte)
+        con.commit()
+    except Exception:
+        try:
+            con.rollback()
+        except MySQLdb.Error:
+            pass
+        raise
+    return nro
+
+
+def correos(con, limite=10):
+    cur = con.cursor(MySQLdb.cursors.DictCursor)
+    cur.execute("SELECT * FROM correos ORDER BY nro DESC LIMIT %s", (int(limite),))
+    filas = list(cur.fetchall())
+    con.commit()
+    return filas
+
+
+def tomar_candado_correo(con):
+    """Evita que dos procesos envíen el mismo tramo a la vez. True si se obtuvo."""
+    cur = con.cursor()
+    cur.execute("SELECT GET_LOCK(%s, 0)", (CANDADO_CORREO,))
+    ok = cur.fetchone()[0] == 1
+    con.commit()
+    return ok
+
+
+def soltar_candado_correo(con):
+    try:
+        cur = con.cursor()
+        cur.execute("SELECT RELEASE_LOCK(%s)", (CANDADO_CORREO,))
+        cur.fetchall()
+        con.commit()
+    except MySQLdb.Error:
+        pass
+
+
 # ---------------------------------------------------------------- consultas
 def total(con):
     cur = con.cursor()
@@ -185,8 +271,10 @@ def resumen(con):
     rechazadas = cur.fetchone()[0]
     con.commit()
     ultima_descarga = descargas(con, 1)
+    ultimo_correo = correos(con, 1)
     return {"total": int(cantidad), "primera": primera, "ultima": ultima, "rechazadas": int(rechazadas),
-            "ultima_descarga": ultima_descarga[0] if ultima_descarga else None, "config": config(con)}
+            "ultima_descarga": ultima_descarga[0] if ultima_descarga else None,
+            "ultimo_correo": ultimo_correo[0] if ultimo_correo else None, "config": config(con)}
 
 
 def _filtros(desde=None, hasta=None, producto=None, id_ctrl=None):
@@ -214,7 +302,7 @@ def listar(con, desde=None, hasta=None, producto=None, id_ctrl=None, pagina=1, p
     cur.execute("SELECT COUNT(*) AS n FROM pesadas" + donde, argumentos)
     cantidad = int(cur.fetchone()["n"])
     pagina = max(1, int(pagina))
-    cur.execute("SELECT nro, %s, guardado_en, actualizado_en FROM pesadas%s "
+    cur.execute("SELECT nro, %s, guardado_en, actualizado_en, correo FROM pesadas%s "
                 "ORDER BY FechaI DESC, nro DESC LIMIT %%s OFFSET %%s" % (", ".join(COLUMNAS_PESADA), donde),
                 argumentos + [int(por_pagina), (pagina - 1) * int(por_pagina)])
     filas = list(cur.fetchall())

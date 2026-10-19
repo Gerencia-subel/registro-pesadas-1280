@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash
 
-from . import VERSION, basedatos, formato
+from . import VERSION, basedatos, correo, formato
 from .basedatos import ErrorBase
 from .reloj import ahora
 
@@ -61,6 +61,28 @@ def _fecha_param(nombre):
 
 def _num(valor):
     return None if valor is None else float(valor)
+
+
+def _vivo(latido):
+    try:
+        edad = (ahora() - datetime.strptime(latido or "", "%Y-%m-%d %H:%M:%S")).total_seconds()
+    except ValueError:
+        return False
+    return edad <= LATIDO_MAXIMO
+
+
+def _hora_config(texto):
+    try:
+        return formato.fecha(datetime.strptime(texto or "", "%Y-%m-%d %H:%M:%S"))
+    except ValueError:
+        return ""
+
+
+def _correo_json(c):
+    tramo = correo.rango(c["desde"], c["hasta"]) if c["desde"] and c["hasta"] else ""
+    return {"nro": c["nro"], "enviado_en": formato.fecha_segundos(c["enviado_en"]), "tipo": c["tipo"],
+            "tramo": tramo, "pesadas": c["pesadas"], "resultado": c["resultado"],
+            "archivo": c["archivo"] or "", "detalle": c["detalle"] or ""}
 
 
 def crear_app(ajustes, conectar=basedatos.conectar):
@@ -160,12 +182,8 @@ def crear_app(ajustes, conectar=basedatos.conectar):
             r = basedatos.resumen(con)
             cfg = r["config"]
             d = r["ultima_descarga"]
-            servicio_ok = False
-            try:
-                edad = (ahora() - datetime.strptime(cfg.get("latido", ""), "%Y-%m-%d %H:%M:%S")).total_seconds()
-                servicio_ok = edad <= LATIDO_MAXIMO
-            except ValueError:
-                pass
+            c = r["ultimo_correo"]
+            servicio_ok = _vivo(cfg.get("latido"))
             return jsonify({
                 "ok": True,
                 "ahora": formato.fecha(ahora()),
@@ -181,6 +199,12 @@ def crear_app(ajustes, conectar=basedatos.conectar):
                     "inicio": formato.fecha_segundos(d["inicio"]), "origen": d["origen"],
                     "resultado": d["resultado"], "nuevas": d["nuevas"], "leidas": d["leidas"],
                     "segundos": _num(d["segundos"]), "detalle": d["detalle"] or "",
+                },
+                "correo": {
+                    "activo": cfg.get("correo_activo") == "1", "minutos": cfg.get("correo_minutos"),
+                    "servicio_ok": _vivo(cfg.get("correo_latido")),
+                    "proximo": _hora_config(cfg.get("correo_proximo")),
+                    "ultimo": None if not c else _correo_json(c),
                 },
             })
         return con_base(hacer)
@@ -213,6 +237,7 @@ def crear_app(ajustes, conectar=basedatos.conectar):
                     "Turno": f["Turno"], "Estado": f["Estado"],
                     "guardado_en": formato.fecha_segundos(f["guardado_en"]),
                     "actualizado_en": formato.fecha_segundos(f["actualizado_en"]),
+                    "correo": f["correo"] or None,
                 } for f in filas],
             })
         return con_base(hacer)
@@ -226,6 +251,12 @@ def crear_app(ajustes, conectar=basedatos.conectar):
                 "nuevas": d["nuevas"], "actualizadas": d["actualizadas"], "total": d["total"],
                 "detalle": d["detalle"] or "",
             } for d in basedatos.descargas(con, 20)]})
+        return con_base(hacer)
+
+    @app.get("/api/correos")
+    def api_correos():
+        def hacer(con):
+            return jsonify({"ok": True, "correos": [_correo_json(c) for c in basedatos.correos(con, 50)]})
         return con_base(hacer)
 
     return app

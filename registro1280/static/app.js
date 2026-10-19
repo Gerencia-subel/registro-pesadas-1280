@@ -55,6 +55,23 @@ async function cargarResumen() {
     texto($("bucle-detalle"), "Para iniciarlo: bucle 5");
     $("bucle-detalle").className = "detalle";
   }
+  const c = r.correo;
+  if (c.activo) {
+    texto($("correo"), "Cada " + c.minutos + " min");
+    let detalle = c.proximo ? "Próximo: " + c.proximo : "Activo";
+    if (!c.servicio_ok) detalle = "Activado, pero el servicio no responde";
+    else if (c.ultimo && c.ultimo.tipo === "tramo") {
+      detalle = (c.ultimo.resultado === "OK" ? "Último: " + c.ultimo.tramo + ", " + c.ultimo.pesadas + " pesadas"
+        : "Último falló: " + c.ultimo.detalle) + ". " + detalle;
+    }
+    texto($("correo-detalle"), detalle);
+    const fallo = c.ultimo && c.ultimo.tipo === "tramo" && c.ultimo.resultado !== "OK";
+    $("correo-detalle").className = "detalle " + (!c.servicio_ok || fallo ? "estado-error" : "");
+  } else {
+    texto($("correo"), "Detenido");
+    texto($("correo-detalle"), "Para iniciarlo: correo 5");
+    $("correo-detalle").className = "detalle";
+  }
   texto($("controlador"), r.controlador);
   texto($("hora"), "Hora de la Pi: " + r.ahora);
 }
@@ -83,7 +100,7 @@ async function cargarPesadas() {
   if (!r.filas.length) {
     const tr = document.createElement("tr");
     const td = celda(tr, Object.keys(filtros).length > 1 ? "No hay pesadas con esos filtros." : "Todavía no hay pesadas guardadas.", "vacio");
-    td.colSpan = 11;
+    td.colSpan = 12;
     cuerpo.appendChild(tr);
   }
   for (const f of r.filas) {
@@ -106,6 +123,7 @@ async function cargarPesadas() {
       m.textContent = "actualizada " + f.actualizado_en;
       g.appendChild(m);
     }
+    celda(tr, f.correo, "n");
     cuerpo.appendChild(tr);
   }
   const desde = r.total ? (pagina - 1) * r.por_pagina + 1 : 0;
@@ -114,6 +132,31 @@ async function cargarPesadas() {
     hasta.toLocaleString("en-US") + " de " + r.total_texto + ")");
   $("anterior").disabled = pagina <= 1;
   $("siguiente").disabled = pagina >= paginas;
+}
+
+async function cargarCorreos() {
+  const r = await pedir("/api/correos");
+  const cuerpo = $("correos-filas");
+  cuerpo.innerHTML = "";
+  if (!r.ok || !r.correos.length) {
+    const tr = document.createElement("tr");
+    const td = celda(tr, r.ok ? "Todavía no se envió ningún correo." : r.error, "vacio");
+    td.colSpan = 8;
+    cuerpo.appendChild(tr);
+    return;
+  }
+  for (const c of r.correos) {
+    const tr = document.createElement("tr");
+    celda(tr, c.nro, "n");
+    celda(tr, c.enviado_en);
+    celda(tr, c.tipo);
+    celda(tr, c.tramo);
+    celda(tr, c.pesadas, "n");
+    celda(tr, c.resultado, c.resultado === "OK" ? "res-ok" : "res-error");
+    celda(tr, c.archivo);
+    celda(tr, c.detalle, "largo");
+    cuerpo.appendChild(tr);
+  }
 }
 
 function leerFiltros() {
@@ -141,10 +184,13 @@ $("por_pagina").addEventListener("change", () => { leerFiltros(); pagina = 1; ca
 $("anterior").addEventListener("click", () => { if (pagina > 1) { pagina--; cargarPesadas(); } });
 $("siguiente").addEventListener("click", () => { if (pagina < paginas) { pagina++; cargarPesadas(); } });
 
+$("correos-caja").addEventListener("toggle", () => { if ($("correos-caja").open) cargarCorreos(); });
+
 leerFiltros();
 cargarResumen();
 cargarPesadas();
 setInterval(() => {
   cargarResumen();
   if (pagina === 1) cargarPesadas();   // en la primera página aparecen las nuevas solas
+  if ($("correos-caja").open) cargarCorreos();
 }, 30000);

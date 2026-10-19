@@ -73,7 +73,7 @@ class Web(unittest.TestCase):
         fila = r["filas"][0]
         self.assertTrue(fila["Peso"].endswith(" kg"))
         self.assertEqual(set(fila), {"nro", "ID", "cor", "Producto", "Peso", "Acum", "FechaI", "FechaF",
-                                     "Turno", "Estado", "guardado_en", "actualizado_en"})
+                                     "Turno", "Estado", "guardado_en", "actualizado_en", "correo"})
         r = self.cliente.get("/api/pesadas?id=%d" % fila["ID"]).get_json()
         self.assertEqual(r["total"], 1)
         self.assertEqual(self.cliente.get("/api/pesadas?id=x").status_code, 400)
@@ -81,6 +81,28 @@ class Web(unittest.TestCase):
         r = self.cliente.get("/api/pesadas?producto=%27%20OR%201%3D1%20--").get_json()
         self.assertEqual(r["total"], 0)
         self.assertEqual(len(self.cliente.get("/api/descargas").get_json()["descargas"]), 1)
+
+    def test_correos(self):
+        from datetime import datetime
+        con = basedatos.conectar()
+        basedatos.registrar_correo(con, enviado_en=datetime(2026, 10, 19, 9, 15, 2), tipo="tramo",
+                                   desde=datetime(2026, 10, 19, 9, 10), hasta=datetime(2026, 10, 19, 9, 15),
+                                   pesadas=0, resultado="OK", para="ktomasl@alicorp.com.pe", detalle="")
+        basedatos.guardar_config(con, correo_activo="1", correo_minutos="5", correo_proximo="2026-10-19 09:20:00")
+        try:
+            self.ingresar()
+            r = self.cliente.get("/api/resumen").get_json()
+            self.assertEqual((r["correo"]["activo"], r["correo"]["minutos"]), (True, "5"))
+            self.assertEqual(r["correo"]["proximo"], "19/10/2026 09:20")
+            self.assertEqual(r["correo"]["ultimo"]["tramo"], "19/10/2026 09:10 - 09:15")
+            c = self.cliente.get("/api/correos").get_json()["correos"]
+            self.assertEqual((len(c), c[0]["resultado"], c[0]["tipo"]), (1, "OK", "tramo"))
+            self.assertNotIn("para", c[0])          # la web no muestra direcciones
+            self.assertEqual(self.cliente.post("/api/correos").status_code, 405)
+        finally:
+            basedatos.guardar_config(con, correo_activo="0", correo_proximo="")
+            con.cursor().execute("TRUNCATE correos")
+            con.close()
 
     def test_no_se_puede_modificar(self):
         self.ingresar()

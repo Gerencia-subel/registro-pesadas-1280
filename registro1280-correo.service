@@ -1,0 +1,23 @@
+[Unit]
+Description=Registro de pesadas 1280 - envio por correo (Gmail) del CSV de cada tramo
+After=network-online.target mariadb.service
+Wants=network-online.target mariadb.service
+
+[Service]
+Type=simple
+User=registro1280
+Group=registro1280
+WorkingDirectory=/opt/registro1280
+ExecStart=/usr/bin/python3 -m registro1280 servicio-correo
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+UMask=0027
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/registro1280
+
+[Install]
+WantedBy=multi-user.target

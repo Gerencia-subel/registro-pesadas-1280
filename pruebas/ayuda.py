@@ -7,11 +7,17 @@ Necesitan MariaDB y permisos de administrador:  sudo python3 -m unittest discove
 import atexit
 import logging
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 os.environ.setdefault("REGISTRO1280_BASE", "registro1280_prueba")
+# La cuenta de correo de las pruebas va en un archivo temporal: nunca se toca /etc/registro1280/correo.ini.
+_CARPETA_TEMPORAL = tempfile.mkdtemp(prefix="registro1280_pruebas_")
+os.environ["REGISTRO1280_CORREO_INI"] = os.path.join(_CARPETA_TEMPORAL, "correo.ini")
+atexit.register(shutil.rmtree, _CARPETA_TEMPORAL, True)
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if RAIZ not in sys.path:
     sys.path.insert(0, RAIZ)
@@ -25,6 +31,8 @@ from simulador_1280 import Simulador  # noqa: E402,F401
 
 BASE = basedatos.BASE
 assert BASE != "registro1280", "Las pruebas no deben usar la base real"
+from registro1280 import correo as _correo  # noqa: E402
+assert _correo.RUTA.startswith(_CARPETA_TEMPORAL), "Las pruebas no deben usar la cuenta de correo real"
 
 _preparada = False
 
@@ -48,10 +56,11 @@ def preparar_base():
             raise unittest.SkipTest("Sin acceso a MariaDB (usar sudo): %s" % r.stderr.decode()[:200])
         _preparada = True
         atexit.register(lambda: _mariadb("DROP DATABASE IF EXISTS %s;" % BASE))
-    r = _mariadb("USE %s; TRUNCATE pesadas; TRUNCATE descargas; TRUNCATE rechazadas; "
-                 "UPDATE configuracion SET valor='0' WHERE clave='bucle_activo'; "
-                 "UPDATE configuracion SET valor='5' WHERE clave='bucle_minutos'; "
-                 "UPDATE configuracion SET valor='' WHERE clave IN ('bucle_cambiado','latido','ultimo_respaldo');"
+    r = _mariadb("USE %s; TRUNCATE pesadas; TRUNCATE descargas; TRUNCATE rechazadas; TRUNCATE correos; "
+                 "UPDATE configuracion SET valor='0' WHERE clave IN ('bucle_activo','correo_activo'); "
+                 "UPDATE configuracion SET valor='5' WHERE clave IN ('bucle_minutos','correo_minutos'); "
+                 "UPDATE configuracion SET valor='' WHERE clave IN ('bucle_cambiado','latido','ultimo_respaldo',"
+                 "'correo_para','correo_copia','correo_cuenta','correo_desde','correo_proximo','correo_latido');"
                  % BASE)
     if r.returncode != 0:
         raise unittest.SkipTest("No se pudo vaciar la base de prueba: %s" % r.stderr.decode()[:200])

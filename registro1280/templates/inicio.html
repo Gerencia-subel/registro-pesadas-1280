@@ -36,6 +36,11 @@
     <p class="detalle" id="bucle-detalle"></p>
   </div>
   <div class="lectura">
+    <h2>Envío por correo</h2>
+    <p class="valor" id="correo">–</p>
+    <p class="detalle" id="correo-detalle"></p>
+  </div>
+  <div class="lectura">
     <h2>Controlador</h2>
     <p class="valor" id="controlador">–</p>
     <p class="detalle" id="hora"></p>
@@ -68,9 +73,10 @@
           <th class="n">N°</th><th class="n">ID</th><th class="n">cor</th><th>Producto</th>
           <th class="n">Peso</th><th class="n">Acum</th><th title="Fecha de inicio">FechaI</th><th title="Fecha de fin">FechaF</th>
           <th class="n">Turno</th><th class="n">Estado</th><th>Guardado</th>
+          <th class="n" title="Número del correo en que se envió">Correo</th>
         </tr>
       </thead>
-      <tbody id="filas"><tr><td colspan="11" class="vacio">Cargando…</td></tr></tbody>
+      <tbody id="filas"><tr><td colspan="12" class="vacio">Cargando…</td></tr></tbody>
     </table>
   </div>
 
@@ -79,6 +85,20 @@
     <span id="pagina-texto"></span>
     <button type="button" id="siguiente">Siguiente</button>
   </nav>
+  <details class="correos" id="correos-caja">
+    <summary>Correos enviados</summary>
+    <div class="tabla-caja">
+      <table>
+        <thead>
+          <tr>
+            <th class="n">N°</th><th>Enviado</th><th>Tipo</th><th>Tramo</th><th class="n">Pesadas</th>
+            <th>Resultado</th><th>Archivo</th><th>Detalle</th>
+          </tr>
+        </thead>
+        <tbody id="correos-filas"><tr><td colspan="8" class="vacio">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </details>
   <p class="version">Solo lectura. Versión {{ version }}</p>
 </main>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
