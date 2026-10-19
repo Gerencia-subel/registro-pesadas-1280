@@ -124,3 +124,8 @@ INSERT IGNORE INTO configuracion (clave, valor) VALUES
   ('correo_proximo', ''),
   ('correo_detenido', ''),
   ('correo_latido', '');
+
+-- Versión 1.3.5: las activaciones del correo anotadas antes con el texto largo quedan solo
+-- con la primera línea ("Correo activado: cada N minutos. Primer envío a las ...").
+UPDATE pedidos SET resultado = SUBSTRING_INDEX(resultado, CHAR(10), 1)
+ WHERE tipo = 'correo' AND resultado LIKE 'Correo activado:%' AND resultado LIKE CONCAT('%', CHAR(10), '%');
