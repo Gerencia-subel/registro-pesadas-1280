@@ -174,64 +174,6 @@ class Accesos(unittest.TestCase):
         self.assertEqual(self.cambiar(nro, "usuario", usuario="operador").status_code, 200)
         self.assertIsNotNone(accesos.autenticar(self.con, "operador", "123456"))
 
-    def legacy(self, clave="clave-anterior", rol="administrador"):
-        cur = self.con.cursor()
-        cur.execute("INSERT INTO usuarios (usuario, clave_hash, rol, revision) VALUES (%s,%s,%s,%s)",
-                    ("LEGACY", generate_password_hash(clave, method="pbkdf2:sha256:1000"), rol, secrets.token_hex(16)))
-        self.con.commit()
-        return cur.lastrowid
-
-    def convertir(self, cliente, anterior="clave-anterior", pin="001234", **datos):
-        cliente.get("/actualizar-pin")
-        with cliente.session_transaction() as sesion:
-            csrf = sesion["migrar_csrf"]
-        return cliente.post("/actualizar-pin", data=dict({"usuario": "LEGACY", "anterior": anterior,
-                            "pin": pin, "repetir": pin, "csrf": csrf}, **datos))
-
-    def test_clave_anterior_se_convierte_una_vez_sin_acceso_al_sistema_previo(self):
-        self.legacy()
-        cliente = self.login("LEGACY", "clave-anterior", esperado=401)
-        self.assertEqual(cliente.get("/api/configuracion").status_code, 401)
-        self.assertEqual(self.convertir(cliente).status_code, 302)
-        self.assertEqual(cliente.get("/api/configuracion").status_code, 200)
-        self.login("LEGACY", "001234")
-        accesos.preparar(self.con, AJUSTES)
-        otro = self.app.test_client()
-        self.assertEqual(self.convertir(otro).status_code, 401)
-        self.assertEqual(self.convertir(otro, anterior="001234").status_code, 401)
-        self.assertIsNone(accesos.autenticar(self.con, "LEGACY", "clave-anterior"))
-
-    def test_pin_anterior_largo_operador_se_convierte_sin_cambiar_rol(self):
-        self.legacy("123456789012", "operador")
-        cliente = self.app.test_client()
-        self.assertEqual(self.convertir(cliente, anterior="123456789012").status_code, 302)
-        self.assertEqual(cliente.get("/api/pesadas").status_code, 200)
-        self.assertEqual(cliente.get("/api/configuracion").status_code, 403)
-
-    def test_recursos_anonimos_no_borran_el_token_de_conversion(self):
-        self.legacy()
-        cliente = self.app.test_client()
-        cliente.get("/actualizar-pin")
-        with cliente.session_transaction() as sesion:
-            csrf = sesion["migrar_csrf"]
-        cliente.get("/favicon.ico")
-        cliente.get("/api/resumen")
-        r = cliente.post("/actualizar-pin", data={"usuario": "LEGACY", "anterior": "clave-anterior",
-                         "pin": "001234", "repetir": "001234", "csrf": csrf})
-        self.assertEqual(r.status_code, 302)
-
-    def test_conversion_valida_pin_confirmacion_csrf_e_intentos(self):
-        self.legacy()
-        cliente = self.app.test_client()
-        self.assertEqual(self.convertir(cliente, csrf="incorrecto").status_code, 403)
-        for pin in ("12345", "1234567", "abcdef"):
-            self.assertEqual(self.convertir(cliente, pin=pin).status_code, 400)
-        self.assertEqual(self.convertir(cliente, repetir="654321").status_code, 400)
-        for _ in range(5):
-            self.assertEqual(self.convertir(cliente, anterior="incorrecta").status_code, 401)
-        self.assertEqual(self.convertir(cliente).status_code, 401)
-        self.assertIn("Demasiados intentos", cliente.post("/ingresar", data={"usuario": "admin.anterior", "clave": "112233"}).get_data(as_text=True))
-
     def test_actualizar_esquema_antiguo_preserva_credenciales_e_invalida_sesiones(self):
         self.con.cursor().execute("ALTER TABLE usuarios DROP COLUMN pin_seis")
         with open(ayuda.RAIZ + "/registro1280/esquema.sql", encoding="utf-8") as archivo:
@@ -244,6 +186,53 @@ class Accesos(unittest.TestCase):
         fila = accesos.autenticar(self.con, "admin.anterior", "112233")
         self.assertEqual(fila["pin_seis"], 1)
         self.assertNotEqual(fila["revision"], self.admin["revision"])
+
+    def test_instalacion_crea_exactamente_las_dos_cuentas_solicitadas(self):
+        self.con.cursor().execute("DELETE FROM usuarios")
+        self.con.commit()
+        from registro1280.__main__ import main
+        with patch.object(config_web, "preparar", return_value=False):
+            self.assertEqual(main(["preparar-web", "8081"]), 0)
+        self.assertEqual([(u["usuario"], u["rol"]) for u in accesos.listar(self.con)],
+                         [("ADMINISTRADOR", "administrador"), ("OPERADOR", "operador")])
+        admin = self.login("ADMINISTRADOR", "102030")
+        operador = self.login("OPERADOR", "123456")
+        self.assertEqual(admin.get("/api/configuracion").status_code, 200)
+        self.assertEqual(operador.get("/api/pesadas").status_code, 200)
+        self.assertEqual(operador.get("/api/configuracion").status_code, 403)
+
+    def test_inicializar_corrige_pin_y_rol_de_cuentas_existentes_una_sola_vez(self):
+        self.crear("ADMINISTRADOR", "operador", "654321")
+        sesion_anterior = self.login("ADMINISTRADOR", "654321")
+        accesos.preparar_iniciales(self.con)
+        self.assertEqual(sesion_anterior.get("/api/pesadas").status_code, 401)
+        cliente = self.login("ADMINISTRADOR", "102030")
+        self.assertEqual(cliente.get("/api/configuracion").status_code, 200)
+        self.login("ADMINISTRADOR", "654321", esperado=401)
+        # Las demás cuentas se conservan.
+        self.assertIsNotNone(accesos.autenticar(self.con, "admin.anterior", "112233"))
+
+    def test_actualizaciones_no_restauran_pin_nombre_ni_usuario_eliminado(self):
+        accesos.preparar_iniciales(self.con)
+        admin = accesos.autenticar(self.con, "ADMINISTRADOR", "102030")
+        operador = accesos.autenticar(self.con, "OPERADOR", "123456")
+        accesos.modificar(self.con, self.admin, admin["nro"], "pin", pin="998877")
+        accesos.modificar(self.con, self.admin, admin["nro"], "usuario", usuario="ADMIN.NUEVO")
+        accesos.modificar(self.con, self.admin, operador["nro"], "eliminar")
+        accesos.preparar_iniciales(self.con)
+        self.assertIsNotNone(accesos.autenticar(self.con, "ADMIN.NUEVO", "998877"))
+        self.assertIsNone(accesos.autenticar(self.con, "ADMINISTRADOR", "102030"))
+        self.assertIsNone(accesos.autenticar(self.con, "OPERADOR", "123456"))
+
+    def test_ya_no_hay_enlace_ni_conversion_de_credenciales(self):
+        cliente = self.app.test_client()
+        html = cliente.get("/ingresar").get_data(as_text=True)
+        self.assertNotIn("Actualizar acceso anterior", html)
+        self.assertNotIn("/actualizar-pin", html)
+        for metodo in (cliente.get, cliente.post):
+            r = metodo("/actualizar-pin")
+            self.assertEqual(r.status_code, 302)
+            self.assertEqual(r.headers["Location"], "/ingresar")
 
     def test_csrf_requerido_para_cada_cambio(self):
         nro = self.crear()

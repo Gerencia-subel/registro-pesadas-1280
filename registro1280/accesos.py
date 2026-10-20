@@ -12,6 +12,11 @@ from .config_web import METODO
 
 ROLES = ("administrador", "operador")
 COLUMNAS = "nro, usuario, rol, revision, pin_seis"
+# Solo hashes de los PIN iniciales elegidos por el propietario.
+CUENTAS_INICIALES = (
+    ("ADMINISTRADOR", "administrador", "pbkdf2:sha256:600000$TXjadL1Em3IK74HY$d094260394d5b513190404a09978a28bc99ae4aec9617bb8d938f4db0158694a"),
+    ("OPERADOR", "operador", "pbkdf2:sha256:600000$Z7TWf9WqOSgZadof$e56306491862ab039040881f678c4d0771b5a86d44eecc8e58ecc54b143f0936"),
+)
 
 
 class ErrorAcceso(ValueError):
@@ -55,6 +60,22 @@ def preparar(con, ajustes):
                     "ON DUPLICATE KEY UPDATE valor='1'")
 
 
+def preparar_iniciales(con):
+    """Crea o restablece las dos cuentas solicitadas una sola vez durante la instalación."""
+    with _cambio(con) as cur:
+        cur.execute("SELECT valor FROM configuracion WHERE clave='accesos_iniciales_152'")
+        marca = cur.fetchone()
+        if marca and marca["valor"] == "1":
+            return
+        for usuario, rol, clave_hash in CUENTAS_INICIALES:
+            cur.execute("INSERT INTO usuarios (usuario, clave_hash, rol, revision, pin_seis) VALUES (%s,%s,%s,%s,1) "
+                        "ON DUPLICATE KEY UPDATE clave_hash=VALUES(clave_hash), rol=VALUES(rol), "
+                        "revision=VALUES(revision), pin_seis=1",
+                        (usuario, clave_hash, rol, secrets.token_hex(16)))
+        cur.execute("INSERT INTO configuracion (clave,valor) VALUES ('accesos_iniciales_152','1') "
+                    "ON DUPLICATE KEY UPDATE valor='1'")
+
+
 def _credenciales(con, usuario, clave):
     cur = con.cursor(DictCursor)
     cur.execute("SELECT " + COLUMNAS + ", clave_hash FROM usuarios WHERE usuario=%s", (usuario,))
@@ -81,23 +102,6 @@ def autenticar(con, usuario, pin):
             if cur.rowcount != 1:
                 return None
             fila.update(pin_seis=1, revision=revision)
-    return fila
-
-
-def convertir_pin(con, usuario, anterior, pin):
-    """Solo las cuentas anteriores pueden sustituir su credencial antigua una vez."""
-    clave_hash = _hash_pin(pin)
-    fila = _credenciales(con, usuario, anterior)
-    if not fila or fila["pin_seis"]:
-        return None
-    with _cambio(con) as cur:
-        revision = secrets.token_hex(16)
-        cur.execute("UPDATE usuarios SET clave_hash=%s, pin_seis=1, revision=%s "
-                    "WHERE nro=%s AND revision=%s AND pin_seis=0",
-                    (clave_hash, revision, fila["nro"], fila["revision"]))
-        if cur.rowcount != 1:
-            return None
-        fila.update(pin_seis=1, revision=revision)
     return fila
 
 

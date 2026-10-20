@@ -60,7 +60,7 @@ def preparar_base():
         _preparada = True
         atexit.register(lambda: _mariadb("DROP DATABASE IF EXISTS %s;" % BASE))
     r = _mariadb("USE %s; TRUNCATE pesadas; TRUNCATE descargas; TRUNCATE rechazadas; TRUNCATE correos; TRUNCATE pedidos; TRUNCATE usuarios; "
-                 "DELETE FROM configuracion WHERE clave='accesos_migrados'; "
+                 "DELETE FROM configuracion WHERE clave IN ('accesos_migrados','accesos_iniciales_152'); "
                  "UPDATE configuracion SET valor='0' WHERE clave IN ('bucle_activo','correo_activo'); "
                  "UPDATE configuracion SET valor='1' WHERE clave='comunicacion_activo'; "
                  "UPDATE configuracion SET valor='5' WHERE clave='comunicacion_segundos'; "

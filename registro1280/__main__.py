@@ -49,10 +49,10 @@ def main(argv=None):
         creado = config_web.preparar(int(argumentos[0]) if argumentos else 8081)
         con = basedatos.conectar()
         try:
-            accesos.preparar(con, config_web.leer())
+            accesos.preparar_iniciales(con)
         finally:
             con.close()
-        print("Configuración de la web %s." % ("creada (usuario intradevco)" if creado else "conservada"))
+        print("Configuración de la web %s." % ("creada" if creado else "conservada"))
         return 0
     from .comandos import COMANDOS
     funcion = COMANDOS.get(comando)
