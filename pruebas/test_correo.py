@@ -1,10 +1,9 @@
-"""Pruebas del envío por correo: CSV, tramos sin repetir, fallas (las de la base necesitan MariaDB).
+"""Pruebas del envío por correo: XLSX, tramos sin repetir, fallas (las de la base necesitan MariaDB).
 
 Se usa un servidor SMTP falso en la misma máquina: no se envía nada a internet.
 """
 
 import contextlib
-import csv
 import io
 import json
 import os
@@ -12,11 +11,13 @@ import unittest
 from datetime import datetime
 from decimal import Decimal
 from unittest import mock
+from xml.etree import ElementTree as ET
+from zipfile import ZipFile
 
 import MySQLdb
 
 import ayuda
-from registro1280 import acciones, basedatos, comandos, correo
+from registro1280 import acciones, basedatos, comandos, correo, excel
 from registro1280.controlador import ErrorControlador, leer_pesadas
 from registro1280.envio import ServicioCorreo, siguiente_envio
 from simulador_1280 import Simulador
@@ -36,12 +37,38 @@ def asunto(mensaje):
     return str(mensaje["Subject"]).strip()
 
 
-def leer_csv(mensaje):
+def leer_libro(datos):
+    with ZipFile(io.BytesIO(datos)) as libro:
+        if libro.testzip() is not None:
+            raise AssertionError("Adjunto XLSX corrupto")
+        ns = {"s": excel.NS}
+        tabla = ET.fromstring(libro.read("xl/tables/table1.xml"))
+        if tabla.get("displayName") != "TablaBalanzacoches":
+            raise AssertionError("Falta la tabla TablaBalanzacoches")
+        filas = []
+        hojas = ET.fromstring(libro.read("xl/workbook.xml")).findall("s:sheets/s:sheet", ns)
+        for numero in range(1, len(hojas) + 1):
+            hoja = ET.fromstring(libro.read("xl/worksheets/sheet%d.xml" % numero))
+            for indice, fila in enumerate(hoja.findall("s:sheetData/s:row", ns)):
+                if numero > 1 and indice == 0:
+                    continue
+                valores = [""] * len(excel.COLUMNAS)
+                for celda in fila.findall("s:c", ns):
+                    valor = celda.find("s:is/s:t", ns) if celda.get("t") == "inlineStr" else celda.find("s:v", ns)
+                    valores[ord(celda.get("r")[0]) - ord("A")] = valor.text or "" if valor is not None else ""
+                filas.append(valores)
+        if filas[0] != list(excel.TITULOS):
+            raise AssertionError("El adjunto no tiene las columnas de la descarga web")
+        return filas
+
+
+def leer_excel(mensaje):
     adjuntos = list(mensaje.iter_attachments())
     if not adjuntos:
         return None, None
-    texto = adjuntos[0].get_payload(decode=True).decode("utf-8-sig")
-    return adjuntos[0].get_filename(), list(csv.reader(io.StringIO(texto)))
+    if len(adjuntos) != 1 or adjuntos[0].get_content_type() != correo.TIPO_XLSX:
+        raise AssertionError("Debe haber un único adjunto de tipo XLSX")
+    return adjuntos[0].get_filename(), leer_libro(adjuntos[0].get_payload(decode=True))
 
 
 # ---------------------------------------------------------------------- sin base de datos
@@ -52,32 +79,31 @@ class Formatos(unittest.TestCase):
         self.assertEqual(correo.detalle_enviado("a@empresa.com", ""), "Enviado a a@empresa.com.")
         self.assertEqual(correo.detalle_enviado(None, None), "Correo enviado.")
 
-    def test_numeros_como_los_manda_el_controlador(self):
-        self.assertEqual(correo.numero_csv(Decimal("302.9500")), "302.95")
-        self.assertEqual(correo.numero_csv(Decimal("22559.8500")), "22559.85")
-        self.assertEqual(correo.numero_csv(Decimal("-81.6000")), "-81.6")
-        self.assertEqual(correo.numero_csv(Decimal("1000.0000")), "1000")
-        self.assertEqual(correo.numero_csv(Decimal("0.0000")), "0")
-
-    def test_csv(self):
-        filas = [{"ID": 188755, "cor": 77, "Producto": "Sapolio Floral, Limón", "Peso": Decimal("302.9500"),
+    def test_excel_con_tabla_numeros_y_texto_literal(self):
+        filas = [{"ID": 188755, "cor": 77, "Producto": '=Sapolio Floral, Limón & "A"', "Peso": Decimal("302.9500"),
                   "Acum": Decimal("22559.8500"), "FechaI": datetime(2026, 1, 10, 1, 8),
                   "FechaF": datetime(2026, 1, 10, 1, 9), "Turno": 2, "Estado": 0}]
-        datos = correo.armar_csv(filas)
-        self.assertTrue(datos.startswith(b"\xef\xbb\xbf"))      # UTF-8 con BOM: Excel muestra bien las tildes
-        lineas = list(csv.reader(io.StringIO(datos.decode("utf-8-sig"))))
-        self.assertEqual(lineas[0], ["ID", "Producto", "cor", "Peso", "Acumulado", "Hora inicial", "Hora fin",
-                                     "Fecha", "Turno"])
-        self.assertEqual(lineas[1], ["188755", "Sapolio Floral, Limón", "77", "302.95", "22559.85",
-                                     "01:08", "01:09", "10/01/2026", "2"])
-        self.assertEqual(datos.decode("utf-8-sig").count("\r\n"), 2)
+        datos = correo.armar_excel(filas)
+        lineas = leer_libro(datos)
+        self.assertEqual(lineas[1][1:4], ["188755", "77", '=Sapolio Floral, Limón & "A"'])
+        self.assertEqual(Decimal(lineas[1][4]), Decimal("302.95"))
+        self.assertEqual(Decimal(lineas[1][5]), Decimal("22559.85"))
+        self.assertEqual(lineas[1][8:10], ["2", "0"])
+        with ZipFile(io.BytesIO(datos)) as libro:
+            hoja = ET.fromstring(libro.read("xl/worksheets/sheet1.xml"))
+            ns = {"s": excel.NS}
+            self.assertEqual(hoja.find(".//s:c[@r='D2']", ns).get("t"), "inlineStr")
+            self.assertEqual(hoja.findall(".//s:f", ns), [])
+            self.assertEqual(hoja.find(".//s:c[@r='E2']", ns).get("t"), None)
 
-    def test_fecha_es_la_de_inicio(self):
+    def test_fechas_completas_al_cruzar_medianoche(self):
         filas = [{"ID": 1, "cor": 1, "Producto": "Granel", "Peso": Decimal("300"), "Acum": Decimal("300"),
                   "FechaI": datetime(2026, 10, 19, 23, 59), "FechaF": datetime(2026, 10, 20, 0, 1), "Turno": 2,
                   "Estado": 0}]
-        linea = list(csv.reader(io.StringIO(correo.armar_csv(filas).decode("utf-8-sig"))))[1]
-        self.assertEqual(linea[5:8], ["23:59", "00:01", "19/10/2026"])
+        linea = leer_libro(correo.armar_excel(filas))[1]
+        for indice, clave in ((6, "FechaI"), (7, "FechaF")):
+            esperado = (filas[0][clave] - datetime(1899, 12, 30)).total_seconds() / 86400
+            self.assertAlmostEqual(float(linea[indice]), esperado, places=8)
 
     def test_textos_del_tramo(self):
         a, b = datetime(2026, 10, 19, 9, 10), datetime(2026, 10, 19, 9, 15)
@@ -85,10 +111,10 @@ class Formatos(unittest.TestCase):
         self.assertEqual(correo.asunto_tramo(a, b, 1), "Balanza de Coches - PDL 19/10/2026 09:10 - 09:15 - 1 pesada")
         self.assertEqual(correo.asunto_tramo(a, b, 0), "Balanza de Coches - PDL 19/10/2026 09:10 - 09:15 - Sin pesadas")
         self.assertTrue(correo.asunto_tramo(a, b, 0, True).endswith("Sin pesadas - Controlador sin respuesta"))
-        self.assertEqual(correo.nombre_archivo(a, b), "Balanza de Coches - PDL_20261019_0910-0915.csv")
+        self.assertEqual(correo.nombre_archivo(a, b), "Balanza de Coches - PDL_20261019_0910-0915.xlsx")
         c, d = datetime(2026, 10, 19, 23, 55), datetime(2026, 10, 20, 0, 0)
         self.assertEqual(correo.rango(c, d), "19/10/2026 23:55 - 20/10/2026 00:00")
-        self.assertEqual(correo.nombre_archivo(c, d), "Balanza de Coches - PDL_20261019_2355-20261020_0000.csv")
+        self.assertEqual(correo.nombre_archivo(c, d), "Balanza de Coches - PDL_20261019_2355-20261020_0000.xlsx")
 
     def test_direcciones(self):
         self.assertEqual(correo.direcciones("ktomasl@alicorp.com.pe, subelrobotin@gmail.com"),
@@ -125,7 +151,7 @@ class EnvioSMTP(unittest.TestCase):
 
     def mensaje(self, cuenta, para=("ktomasl@alicorp.com.pe",), copia=("subelrobotin@gmail.com",)):
         return correo.armar_mensaje(cuenta, list(para), list(copia), "Asunto ñandú", "Cuerpo\n.punto al inicio\n",
-                                    correo.armar_csv([]), "pesadas.csv")
+                                    correo.armar_excel([]), "pesadas.xlsx")
 
     def test_envia_con_para_copia_y_adjunto(self):
         cuenta = self.smtp.cuenta()
@@ -138,8 +164,8 @@ class EnvioSMTP(unittest.TestCase):
         self.assertEqual(asunto(m), "Asunto ñandú")
         self.assertIn("prueba@gmail.com", m["From"])
         self.assertIn(".punto al inicio", m.get_body().get_content())
-        nombre, filas = leer_csv(m)
-        self.assertEqual((nombre, filas[0][0]), ("pesadas.csv", "ID"))
+        nombre, filas = leer_excel(m)
+        self.assertEqual((nombre, filas[0][0]), ("pesadas.xlsx", "N°"))
 
     def test_clave_incorrecta_no_se_reintenta(self):
         cuenta = self.smtp.cuenta(clave="otra")
@@ -251,8 +277,8 @@ class Tramos(unittest.TestCase):
     def ids_enviados(self):
         ids = []
         for r in self.smtp.mensajes:
-            _, filas = leer_csv(r["mensaje"])
-            ids += [int(f[0]) for f in (filas or [[]])[1:] if f]
+            _, filas = leer_excel(r["mensaje"])
+            ids += [int(f[1]) for f in (filas or [[]])[1:] if f]
         return ids
 
     def test_cada_correo_lleva_solo_su_tramo(self):
@@ -267,18 +293,23 @@ class Tramos(unittest.TestCase):
         m = self.smtp.mensajes[0]["mensaje"]
         self.assertEqual(asunto(m), "Balanza de Coches - PDL 19/10/2026 09:12 - 09:15 - 3 pesadas")
         self.assertEqual(self.smtp.mensajes[0]["para"], ["ktomasl@alicorp.com.pe", "subelrobotin@gmail.com"])
-        nombre, filas = leer_csv(m)
-        self.assertEqual(nombre, "Balanza de Coches - PDL_20261019_0912-0915.csv")
-        self.assertEqual([f[0] for f in filas[1:]], [p.split("|")[0] for p in primeras])
-        self.assertEqual(filas[1][3], primeras[0].split("|")[3])       # el peso tal cual (302.95)
+        nombre, filas = leer_excel(m)
+        self.assertEqual(nombre, "Balanza de Coches - PDL_20261019_0912-0915.xlsx")
+        cuerpo = m.get_body().get_content()
+        self.assertIn("TablaBalanzacoches", cuerpo)
+        self.assertIn(nombre, cuerpo)
+        self.assertNotIn(".csv", cuerpo)
+        self.assertTrue(filas[1][10])  # Guardado, igual que la descarga de la web.
+        self.assertEqual([f[1] for f in filas[1:]], [p.split("|")[0] for p in primeras])
+        self.assertEqual(Decimal(filas[1][4]), Decimal(primeras[0].split("|")[3]))
         # tramo siguiente: 09:15 - 09:20, solo las nuevas
         self.hasta(9, 17)
         segundas = self.pesar(2)
         self.hasta(9, 20)
         m = self.smtp.mensajes[1]["mensaje"]
         self.assertEqual(asunto(m), "Balanza de Coches - PDL 19/10/2026 09:15 - 09:20 - 2 pesadas")
-        _, filas = leer_csv(m)
-        self.assertEqual([f[0] for f in filas[1:]], [p.split("|")[0] for p in segundas])
+        _, filas = leer_excel(m)
+        self.assertEqual([f[1] for f in filas[1:]], [p.split("|")[0] for p in segundas])
         # muchos tramos seguidos: ninguna pesada se repite ni se pierde
         nuevas = primeras + segundas
         for minuto in range(21, 60):
@@ -292,6 +323,29 @@ class Tramos(unittest.TestCase):
         self.assertEqual(len(self.smtp.mensajes), 10)          # 09:15, 09:20 ... 10:00
         historial = basedatos.correos(self.con, 100)
         self.assertTrue(all(c["resultado"] == "OK" for c in historial))
+
+    def test_si_falla_crear_excel_las_pesadas_siguen_pendientes(self):
+        self.activar(5)
+        self.hasta(9, 14)
+        self.pesar(2)
+        with mock.patch.object(correo, "armar_excel", side_effect=OSError("Disco lleno")):
+            with self.assertRaisesRegex(OSError, "Disco lleno"):
+                self.hasta(9, 15)
+        self.assertEqual(self.smtp.mensajes, [])
+        self.assertEqual(basedatos.contar_pendientes(self.con), 2)
+        self.hasta(9, 15, 2)
+        self.assertEqual(len(self.smtp.mensajes), 1)
+        self.assertEqual(len(leer_excel(self.smtp.mensajes[0]["mensaje"])[1]), 3)
+        self.assertEqual(basedatos.contar_pendientes(self.con), 0)
+
+    def test_correo_de_prueba_tambien_adjunta_excel_con_tabla(self):
+        acciones.correo_probar(self.con, leer=self.leer, leer_cuenta=self.smtp.cuenta, reloj=self.reloj)
+        mensaje = self.smtp.mensajes[0]["mensaje"]
+        nombre, filas = leer_excel(mensaje)
+        self.assertTrue(nombre.endswith(".xlsx"))
+        self.assertEqual(len(filas), 6)
+        self.assertIn("TablaBalanzacoches", mensaje.get_body().get_content())
+        self.assertEqual(basedatos.total(self.con), 0)
 
     def test_tramo_sin_pesadas(self):
         self.activar(5)
@@ -706,7 +760,7 @@ class ComandoCorreo(unittest.TestCase):
             r = smtp.mensajes[0]
             self.assertEqual(r["para"], ["ktomasl@alicorp.com.pe", "subelrobotin@gmail.com"])
             self.assertEqual(asunto(r["mensaje"]), "Prueba - Registro de Balanza de Coches - PDL")
-            _, filas = leer_csv(r["mensaje"])
+            _, filas = leer_excel(r["mensaje"])
             self.assertEqual(len(filas), 6)
             self.assertEqual(basedatos.total(con), 0)               # la prueba no guarda nada
             with mock.patch.object(correo, "leer_cuenta", smtp.cuenta):

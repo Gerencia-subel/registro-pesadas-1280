@@ -290,7 +290,7 @@ def correo_probar(con, destino="", leer=None, enviar=None, leer_cuenta=None, rel
         nota = "No se pudo leer el controlador %s, por eso no va el archivo de muestra." % cfg.get("ip", "")
         resumen = "sin archivo: no se pudo leer el controlador %s" % cfg.get("ip", "")
     if muestra:
-        archivo = "%s_prueba_%s.csv" % (correo.EQUIPO, momento.strftime("%Y%m%d_%H%M"))
+        archivo = "%s_prueba_%s.xlsx" % (correo.EQUIPO, momento.strftime("%Y%m%d_%H%M"))
         nota = ("Archivo adjunto de muestra: las últimas %d pesadas del controlador (no se guardan ni cuentan "
                 "como enviadas)." % len(muestra))
         resumen = "muestra de %d pesadas del controlador" % len(muestra)
@@ -298,11 +298,11 @@ def correo_probar(con, destino="", leer=None, enviar=None, leer_cuenta=None, rel
     cuerpo = ("Correo de prueba del registro de %s del Rice Lake 1280 (Raspberry %s), enviado el %s.\n\n"
               "Los envíos automáticos llegan con el asunto, por ejemplo:\n"
               "%s 19/10/2026 09:10 - 09:15 - 12 pesadas\n"
-              "y un archivo CSV solo con las pesadas nuevas de ese tramo.\n\n%s\n"
+              "y un archivo XLSX con la tabla TablaBalanzacoches solo con las pesadas nuevas de ese tramo.\n\n%s\n"
               "Estado de comunicación: %s\n"
               % (correo.EQUIPO, socket.gethostname(), formato.fecha(momento), correo.EQUIPO, nota, estado))
     mensaje = correo.armar_mensaje(cuenta, para, copia, "Prueba - " + correo.NOMBRE, cuerpo,
-                                   correo.armar_csv(muestra) if muestra else None, archivo)
+                                   correo.armar_excel(muestra) if muestra else None, archivo)
     destinos = "a %s%s" % (", ".join(para), "; copia %s" % ", ".join(copia) if copia else "")
     error, no_aceptados = None, ""
     try:

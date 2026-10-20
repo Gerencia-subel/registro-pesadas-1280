@@ -175,7 +175,7 @@ def bucle(argumentos):
 
 
 # ------------------------------------------------------------------ correo
-_USO_CORREO = """Uso: correo 5                    enviar cada 5 minutos el CSV con las pesadas nuevas de cada tramo
+_USO_CORREO = """Uso: correo 5                    enviar cada 5 minutos el XLSX con las pesadas nuevas de cada tramo
      correo detener              detener el envío
      correo                      ver el estado y los últimos correos
      correo para a@x.com b@y.com destinatarios

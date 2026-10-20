@@ -21,7 +21,7 @@ def main(argv=None):
         print("  bucle 5                 guardar cada 5 minutos, siempre")
         print("  bucle detener           detener el guardado automático")
         print("  bucle                   ver el estado del bucle y las últimas descargas")
-        print("  correo 5                enviar por correo cada 5 minutos el CSV con las pesadas nuevas")
+        print("  correo 5                enviar por correo cada 5 minutos el XLSX con las pesadas nuevas")
         print("  correo detener          detener el envío por correo")
         print("  correo                  ver el estado del correo y los últimos envíos")
         print("  correo para / copia     destinatarios (correo para nombre@empresa.com)")

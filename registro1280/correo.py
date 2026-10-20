@@ -1,4 +1,4 @@
-"""Correo por Gmail (SMTP) con el CSV de las pesadas.
+"""Correo por Gmail (SMTP) con el Excel XLSX de las pesadas.
 
 La cuenta que envía (correo de Gmail y contraseña de aplicación) está en
 /var/lib/registro1280/correo.ini, que solo pueden leer root y el servicio del correo:
@@ -6,24 +6,23 @@ no se guarda en la base ni en GitHub. La web la cambia mandando un pedido al ser
 """
 
 import configparser
-import csv
-import io
 import os
 import pwd
 import re
 import smtplib
 import socket
 import ssl
-from decimal import Decimal
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
+
+from . import excel
 
 RUTA = os.environ.get("REGISTRO1280_CORREO_INI", "/var/lib/registro1280/correo.ini")
 SERVIDOR = "smtp.gmail.com"
 PUERTO = 587
 EQUIPO = "Balanza de Coches - PDL"          # nombre que va en los correos en lugar de "pesadas"
 NOMBRE = "Registro de " + EQUIPO            # remitente
-COLUMNAS_CSV = ("ID", "Producto", "cor", "Peso", "Acumulado", "Hora inicial", "Hora fin", "Fecha", "Turno")
+TIPO_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _DIRECCION = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
                         r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$")
 
@@ -105,7 +104,7 @@ def guardar_cuenta(usuario, clave, ruta=None):
     os.replace(temporal, ruta)
 
 
-# ------------------------------------------------------------------ CSV
+# ------------------------------------------------------------------ adjunto XLSX
 _EN_TEXTO = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 
@@ -114,35 +113,10 @@ def sin_direcciones(texto):
     return _EN_TEXTO.sub("(dirección)", texto or "")
 
 
-def numero_csv(valor):
-    """Decimal('302.9500') -> '302.95'; Decimal('-81.6000') -> '-81.6'; Decimal('1000.0000') -> '1000'."""
-    if valor is None:
-        return ""
-    d = Decimal(valor)
-    texto = format(d.normalize(), "f") if d != 0 else "0"
-    return texto
-
-
-def hora_csv(momento):
-    return momento.strftime("%H:%M") if momento else ""
-
-
-def fecha_csv(momento):
-    return momento.strftime("%d/%m/%Y") if momento else ""
-
-
-def armar_csv(filas):
-    """Filas (dict con las columnas del controlador) -> bytes del CSV (UTF-8 con BOM para Excel).
-
-    9 columnas: ID, Producto, cor, Peso, Acumulado, Hora inicial, Hora fin, Fecha (la de inicio), Turno.
-    """
-    salida = io.StringIO()
-    escritor = csv.writer(salida, lineterminator="\r\n")
-    escritor.writerow(COLUMNAS_CSV)
-    for f in filas:
-        escritor.writerow([f["ID"], f["Producto"], f["cor"], numero_csv(f["Peso"]), numero_csv(f["Acum"]),
-                           hora_csv(f["FechaI"]), hora_csv(f["FechaF"]), fecha_csv(f["FechaI"]), f["Turno"]])
-    return salida.getvalue().encode("utf-8-sig")
+def armar_excel(filas):
+    """Mismo libro y tabla TablaBalanzacoches que en la descarga de la web."""
+    with excel.crear(filas) as archivo:
+        return archivo.read()
 
 
 # ------------------------------------------------------------------ textos
@@ -155,8 +129,8 @@ def rango(desde, hasta):
 
 def nombre_archivo(desde, hasta):
     if desde.date() == hasta.date():
-        return "%s_%s_%s-%s.csv" % (EQUIPO, desde.strftime("%Y%m%d"), desde.strftime("%H%M"), hasta.strftime("%H%M"))
-    return "%s_%s-%s.csv" % (EQUIPO, desde.strftime("%Y%m%d_%H%M"), hasta.strftime("%Y%m%d_%H%M"))
+        return "%s_%s_%s-%s.xlsx" % (EQUIPO, desde.strftime("%Y%m%d"), desde.strftime("%H%M"), hasta.strftime("%H%M"))
+    return "%s_%s-%s.xlsx" % (EQUIPO, desde.strftime("%Y%m%d_%H%M"), hasta.strftime("%Y%m%d_%H%M"))
 
 
 def cantidad_texto(n):
@@ -184,8 +158,8 @@ def armar_mensaje(cuenta, para, copia, asunto, cuerpo, adjunto=None, nombre_adju
     m["Message-ID"] = make_msgid(domain=cuenta["usuario"].split("@")[-1] or None)
     m.set_content(cuerpo)
     if adjunto is not None:
-        m.add_attachment(adjunto, maintype="text", subtype="csv", filename=nombre_adjunto,
-                         params={"charset": "utf-8"})
+        m.add_attachment(adjunto, maintype="application",
+                         subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename=nombre_adjunto)
     return m
 
 

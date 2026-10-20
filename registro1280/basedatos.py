@@ -167,7 +167,7 @@ def borrar_descargas_antiguas(con, antes_de):
 def pendientes_correo(con):
     """Pesadas que todavía no salieron en ningún correo, en orden de FechaI."""
     cur = con.cursor(MySQLdb.cursors.DictCursor)
-    cur.execute("SELECT nro, %s FROM pesadas WHERE correo IS NULL ORDER BY FechaI, nro"
+    cur.execute("SELECT nro, %s, guardado_en, actualizado_en, correo FROM pesadas WHERE correo IS NULL ORDER BY FechaI, nro"
                 % ", ".join(COLUMNAS_PESADA))
     filas = list(cur.fetchall())
     con.commit()

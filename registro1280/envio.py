@@ -1,4 +1,4 @@
-"""Servicio del correo: cada N minutos envía por Gmail un CSV solo con las pesadas nuevas.
+"""Servicio del correo: cada N minutos envía por Gmail un XLSX solo con las pesadas nuevas.
 
 Corre siempre (systemd). El comando "correo" solo cambia la configuración en la base:
   correo_activo   1 = enviar, 0 = detenido
@@ -6,7 +6,7 @@ Corre siempre (systemd). El comando "correo" solo cambia la configuración en la
   correo_desde    inicio del tramo que falta enviar (fin del último correo que salió bien)
   correo_proximo  hora del próximo envío
 En cada envío: primero descarga el controlador (para que entre lo último), toma las
-pesadas que todavía no salieron en ningún correo, arma el CSV y lo envía. Solo si Gmail
+pesadas que todavía no salieron en ningún correo, arma el XLSX y lo envía. Solo si Gmail
 lo acepta, esas pesadas quedan marcadas con el número del correo: así ninguna se repite,
 y si un envío falla, sus pesadas salen en el siguiente correo junto con las nuevas.
 """
@@ -21,7 +21,7 @@ from datetime import timedelta
 
 import MySQLdb
 
-from . import acciones, basedatos, comunicacion, correo
+from . import acciones, basedatos, comunicacion, correo, excel
 from .basedatos import ErrorBase
 from .horario import leer_fecha, minutos_config, siguiente_envio, texto_fecha  # noqa: F401
 from .controlador import ErrorControlador, leer_pesadas
@@ -52,7 +52,8 @@ def cuerpo_tramo(desde, hasta, n, archivo, aviso="", estado_comunicacion=""):
     lineas = []
     if n:
         lineas.append("%s del %s: %s." % (correo.EQUIPO, correo.rango(desde, hasta), correo.cantidad_texto(n)))
-        lineas.append("Archivo adjunto: %s (columnas %s)." % (archivo, ", ".join(correo.COLUMNAS_CSV)))
+        lineas.append("Archivo adjunto: %s (XLSX; tabla %s; columnas %s)."
+                      % (archivo, excel.NOMBRE_TABLA, ", ".join(excel.TITULOS)))
     else:
         lineas.append("%s del %s: sin pesadas." % (correo.EQUIPO, correo.rango(desde, hasta)))
     if estado_comunicacion:
@@ -208,7 +209,7 @@ class ServicioCorreo:
 
     # ------------------------------------------------------------------
     def enviar_tramo(self, con, cfg, proximo, momento):
-        """Descarga, arma el CSV de lo pendiente y lo envía. Devuelve lo que hay que anotar."""
+        """Descarga, arma el XLSX de lo pendiente y lo envía. Devuelve lo que hay que anotar."""
         minutos = minutos_config(cfg)
         # Normalmente el tramo termina en la hora programada. Si la Pi estuvo apagada o sin
         # servicio, termina ahora (cubre todo lo que faltaba).
@@ -245,7 +246,7 @@ class ServicioCorreo:
         cuerpo = cuerpo_tramo(desde, hasta, len(filas), archivo, aviso,
                               comunicacion.texto_estado(comunicacion.leer_estado(cfg, self.reloj)))
         mensaje = correo.armar_mensaje(cuenta, para, copia, asunto, cuerpo,
-                                       correo.armar_csv(filas) if filas else None, archivo)
+                                       correo.armar_excel(filas) if filas else None, archivo)
         error, no_aceptados = None, ""
         for intento in range(2):
             try:
