@@ -18,7 +18,7 @@ from registro1280.controlador import Pesada
 from registro1280.web import crear_app
 from simulador_1280 import Simulador
 
-AJUSTES = {"usuario": "intradevco", "clave_hash": generate_password_hash("intradevco", method="pbkdf2:sha256:1000"),
+AJUSTES = {"usuario": "intradevco", "clave_hash": generate_password_hash("112233", method="pbkdf2:sha256:1000"),
            "secreto": "prueba" * 8, "puerto": 8081}
 
 
@@ -41,7 +41,7 @@ class Web(unittest.TestCase):
         self.app = crear_app(AJUSTES)
         self.cliente = self.app.test_client()
 
-    def ingresar(self, clave="intradevco", ip="10.0.0.5", **kw):
+    def ingresar(self, clave="112233", ip="10.0.0.5", **kw):
         return self.cliente.post("/ingresar", data={"usuario": "intradevco", "clave": clave},
                                  environ_base={"REMOTE_ADDR": ip}, **kw)
 
@@ -61,15 +61,15 @@ class Web(unittest.TestCase):
         self.assertEqual(self.ingresar("mala").status_code, 401)
         for _ in range(4):
             self.ingresar("mala")
-        r = self.ingresar("intradevco")          # bloqueado aunque ahora la clave sea correcta
+        r = self.ingresar("112233")          # bloqueado aunque ahora la clave sea correcta
         self.assertIn("Demasiados intentos", r.get_data(as_text=True))
-        self.assertEqual(self.ingresar("intradevco", ip="10.0.0.9").status_code, 302)  # otra PC sí entra
+        self.assertEqual(self.ingresar("112233", ip="10.0.0.9").status_code, 302)  # otra PC sí entra
 
     def test_bloqueo_por_ip_real_detras_de_funnel(self):
         for _ in range(5):
             self.cliente.post("/ingresar", data={"usuario": "intradevco", "clave": "x"},
                               environ_base={"REMOTE_ADDR": "127.0.0.1"}, headers={"X-Forwarded-For": "200.1.1.1"})
-        r = self.cliente.post("/ingresar", data={"usuario": "intradevco", "clave": "intradevco"},
+        r = self.cliente.post("/ingresar", data={"usuario": "intradevco", "clave": "112233"},
                               environ_base={"REMOTE_ADDR": "127.0.0.1"}, headers={"X-Forwarded-For": "190.2.2.2"})
         self.assertEqual(r.status_code, 302)
 

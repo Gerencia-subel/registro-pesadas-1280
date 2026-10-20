@@ -39,8 +39,13 @@
     cerrarEdicion();
     edicion = { nro: usuario.nro, accion: accion };
     const pin = accion === "pin";
-    $("editar-rol-campo").hidden = pin;
-    $("editar-rol").disabled = pin;
+    const nombre = accion === "usuario";
+    $("editar-usuario-campo").hidden = !nombre;
+    $("editar-usuario").disabled = !nombre;
+    $("editar-usuario").required = nombre;
+    $("editar-usuario").value = usuario.usuario;
+    $("editar-rol-campo").hidden = accion !== "rol";
+    $("editar-rol").disabled = accion !== "rol";
     $("editar-pin-campo").hidden = !pin;
     $("editar-repetir-campo").hidden = !pin;
     for (const id of ["editar-pin", "editar-repetir"]) {
@@ -48,9 +53,9 @@
       $(id).required = pin;
     }
     $("editar-rol").value = usuario.rol;
-    $("acceso-editar-titulo").textContent = (pin ? "Restablecer PIN: " : "Cambiar rol: ") + usuario.usuario;
+    $("acceso-editar-titulo").textContent = (nombre ? "Cambiar usuario: " : (pin ? "Restablecer PIN: " : "Cambiar rol: ")) + usuario.usuario;
     $("editar-acceso").hidden = false;
-    $(pin ? "editar-pin" : "editar-rol").focus();
+    $(nombre ? "editar-usuario" : (pin ? "editar-pin" : "editar-rol")).focus();
   }
 
   async function cargar() {
@@ -68,7 +73,7 @@
       const td = document.createElement("td");
       const acciones = document.createElement("div");
       acciones.className = "botones";
-      for (const [accion, nombre] of [["rol", "Cambiar rol"], ["pin", "Restablecer PIN"], ["eliminar", "Eliminar"]]) {
+      for (const [accion, nombre] of [["usuario", "Cambiar usuario"], ["rol", "Cambiar rol"], ["pin", "Restablecer PIN"], ["eliminar", "Eliminar"]]) {
         const boton = document.createElement("button");
         boton.type = "button";
         boton.textContent = nombre;
@@ -125,8 +130,8 @@
       mensaje("Los PIN no coinciden.", true); return;
     }
     guardar("/api/accesos/" + edicion.nro,
-            { accion: edicion.accion, rol: $("editar-rol").value, pin: $("editar-pin").value },
-            edicion.accion === "pin" ? "PIN restablecido." : "Rol actualizado.");
+            { accion: edicion.accion, rol: $("editar-rol").value, pin: $("editar-pin").value, usuario: $("editar-usuario").value.trim() },
+            edicion.accion === "usuario" ? "Usuario actualizado." : (edicion.accion === "pin" ? "PIN restablecido." : "Rol actualizado."));
   });
   $("cancelar-acceso").addEventListener("click", cerrarEdicion);
   document.addEventListener("registro1280:vista", (ev) => {

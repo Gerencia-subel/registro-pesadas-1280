@@ -160,7 +160,7 @@ def crear_app(ajustes, conectar=basedatos.conectar):
 
     @app.before_request
     def proteger():
-        if request.endpoint in ("ingresar", "static"):
+        if request.endpoint in ("ingresar", "actualizar_pin", "static"):
             return None
         try:
             g.cuenta = usuario_actual()
@@ -178,7 +178,9 @@ def crear_app(ajustes, conectar=basedatos.conectar):
                     request.headers.get("X-CSRF-Token", ""), session["csrf"]):
                 return jsonify({"ok": False, "error": "La página está desactualizada. Recargarla."}), 403
             return None
-        session.clear()
+        # No borrar el token de conversión por un recurso anónimo solicitado en paralelo.
+        if any(clave in session for clave in ("cuenta", "revision", "usuario")):
+            session.clear()
         if request.path.startswith("/api/"):
             return jsonify({"ok": False, "error": "La sesión terminó. Volver a ingresar."}), 401
         return redirect(url_for("ingresar"))
@@ -192,6 +194,20 @@ def crear_app(ajustes, conectar=basedatos.conectar):
             respuesta.headers["Cache-Control"] = "no-store"
         return respuesta
 
+    def iniciar_sesion(cuenta, origen):
+        intentos.exito(origen)
+        session.clear()
+        session.permanent = True
+        session["cuenta"] = cuenta["nro"]
+        session["revision"] = cuenta["revision"]
+        session["csrf"] = secrets.token_hex(16)
+        return redirect(url_for("inicio"))
+
+    def error_ingreso(origen):
+        intentos.fallo(origen)
+        return ("Demasiados intentos. Esperar 5 minutos y volver a probar."
+                if intentos.bloqueado(origen) else "Usuario o PIN incorrectos.")
+
     @app.route("/ingresar", methods=["GET", "POST"])
     def ingresar():
         error = None
@@ -201,6 +217,9 @@ def crear_app(ajustes, conectar=basedatos.conectar):
             clave = request.form.get("clave") or ""
             if intentos.bloqueado(origen):
                 error = "Demasiados intentos. Esperar 5 minutos y volver a probar."
+            elif not accesos.pin_valido(clave):
+                intentos.fallo(origen)
+                error = "El PIN debe tener exactamente 6 dígitos: ni más ni menos. Si usabas otra clave, elige Actualizar acceso anterior."
             else:
                 try:
                     con = conectar()
@@ -211,18 +230,47 @@ def crear_app(ajustes, conectar=basedatos.conectar):
                 except (ErrorBase, MySQLdb.Error):
                     return render_template("ingresar.html", error="No se pudo verificar el acceso. Intenta de nuevo.", version=VERSION), 503
                 if cuenta:
-                    intentos.exito(origen)
-                    session.clear()
-                    session.permanent = True
-                    session["cuenta"] = cuenta["nro"]
-                    session["revision"] = cuenta["revision"]
-                    session["csrf"] = secrets.token_hex(16)
-                    return redirect(url_for("inicio"))
+                    return iniciar_sesion(cuenta, origen)
                 else:
-                    intentos.fallo(origen)
-                    error = ("Demasiados intentos. Esperar 5 minutos y volver a probar."
-                             if intentos.bloqueado(origen) else "Usuario o clave incorrectos.")
+                    error = error_ingreso(origen)
         return render_template("ingresar.html", error=error, version=VERSION), (401 if error else 200)
+
+    @app.route("/actualizar-pin", methods=["GET", "POST"])
+    def actualizar_pin():
+        error, estado = None, 200
+        if "migrar_csrf" not in session:
+            session["migrar_csrf"] = secrets.token_hex(16)
+        if request.method == "POST":
+            origen = origen_del_pedido()
+            usuario = (request.form.get("usuario") or "").strip()
+            anterior = request.form.get("anterior") or ""
+            pin = request.form.get("pin") or ""
+            token = request.form.get("csrf") or ""
+            if not hmac.compare_digest(token.encode("utf-8"), session["migrar_csrf"].encode("utf-8")):
+                error, estado = "Recarga la página y vuelve a intentar.", 403
+            elif intentos.bloqueado(origen):
+                error, estado = "Demasiados intentos. Esperar 5 minutos y volver a probar.", 401
+            elif not accesos.pin_valido(pin):
+                error, estado = "El PIN debe tener exactamente 6 dígitos: ni más ni menos.", 400
+            elif pin != request.form.get("repetir"):
+                error, estado = "Los PIN no coinciden.", 400
+            else:
+                try:
+                    con = conectar()
+                    try:
+                        cuenta = accesos.convertir_pin(con, usuario, anterior, pin) if len(usuario) <= 80 and len(anterior) <= 1024 else None
+                    finally:
+                        con.close()
+                except (ErrorBase, MySQLdb.Error):
+                    error, estado = "No se pudo actualizar el acceso. Intenta de nuevo.", 503
+                else:
+                    if cuenta:
+                        return iniciar_sesion(cuenta, origen)
+                    error_ingreso(origen)
+                    error, estado = ("Demasiados intentos. Esperar 5 minutos y volver a probar."
+                                     if intentos.bloqueado(origen) else
+                                     "Los datos anteriores no son válidos o este acceso ya usa un PIN de 6 dígitos."), 401
+        return render_template("actualizar_pin.html", error=error, csrf=session["migrar_csrf"], version=VERSION), estado
 
     @app.get("/salir")
     def salir():
@@ -461,8 +509,9 @@ def crear_app(ajustes, conectar=basedatos.conectar):
             return jsonify({"ok": False, "error": "Datos de usuario no válidos."}), 400
 
         def hacer(con):
-            accesos.modificar(con, g.cuenta, nro, cuerpo.get("accion"), cuerpo.get("rol"), cuerpo.get("pin"))
+            accesos.modificar(con, g.cuenta, nro, cuerpo.get("accion"), cuerpo.get("rol"), cuerpo.get("pin"), cuerpo.get("usuario"))
             propia_sesion = nro == g.cuenta["nro"] and (cuerpo.get("accion") == "pin" or
+                           (cuerpo.get("accion") == "usuario" and cuerpo.get("usuario") != g.cuenta["usuario"]) or
                            (cuerpo.get("accion") == "rol" and cuerpo.get("rol") != g.cuenta["rol"]))
             if propia_sesion:
                 session.clear()

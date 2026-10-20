@@ -11,7 +11,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from .config_web import METODO
 
 ROLES = ("administrador", "operador")
-COLUMNAS = "nro, usuario, rol, revision"
+COLUMNAS = "nro, usuario, rol, revision, pin_seis"
 
 
 class ErrorAcceso(ValueError):
@@ -55,7 +55,7 @@ def preparar(con, ajustes):
                     "ON DUPLICATE KEY UPDATE valor='1'")
 
 
-def autenticar(con, usuario, clave):
+def _credenciales(con, usuario, clave):
     cur = con.cursor(DictCursor)
     cur.execute("SELECT " + COLUMNAS + ", clave_hash FROM usuarios WHERE usuario=%s", (usuario,))
     fila = cur.fetchone()
@@ -68,12 +68,45 @@ def autenticar(con, usuario, clave):
     return fila
 
 
+def autenticar(con, usuario, pin):
+    if not pin_valido(pin):
+        return None
+    fila = _credenciales(con, usuario, pin)
+    if fila and not fila["pin_seis"]:
+        # Un PIN anterior que ya tiene seis dígitos se conserva sin pedir cambiarlo.
+        with _cambio(con) as cur:
+            revision = secrets.token_hex(16)
+            cur.execute("UPDATE usuarios SET pin_seis=1, revision=%s WHERE nro=%s AND revision=%s AND pin_seis=0",
+                        (revision, fila["nro"], fila["revision"]))
+            if cur.rowcount != 1:
+                return None
+            fila.update(pin_seis=1, revision=revision)
+    return fila
+
+
+def convertir_pin(con, usuario, anterior, pin):
+    """Solo las cuentas anteriores pueden sustituir su credencial antigua una vez."""
+    clave_hash = _hash_pin(pin)
+    fila = _credenciales(con, usuario, anterior)
+    if not fila or fila["pin_seis"]:
+        return None
+    with _cambio(con) as cur:
+        revision = secrets.token_hex(16)
+        cur.execute("UPDATE usuarios SET clave_hash=%s, pin_seis=1, revision=%s "
+                    "WHERE nro=%s AND revision=%s AND pin_seis=0",
+                    (clave_hash, revision, fila["nro"], fila["revision"]))
+        if cur.rowcount != 1:
+            return None
+        fila.update(pin_seis=1, revision=revision)
+    return fila
+
+
 _HASH_VACIO = generate_password_hash(secrets.token_hex(16), method=METODO)
 
 
 def vigente(con, nro, revision):
     cur = con.cursor(DictCursor)
-    cur.execute("SELECT " + COLUMNAS + " FROM usuarios WHERE nro=%s AND revision=%s", (nro, revision))
+    cur.execute("SELECT " + COLUMNAS + " FROM usuarios WHERE nro=%s AND revision=%s AND pin_seis=1", (nro, revision))
     fila = cur.fetchone()
     con.commit()
     return fila
@@ -93,9 +126,13 @@ def _nombre(usuario):
     return usuario
 
 
+def pin_valido(pin):
+    return isinstance(pin, str) and re.fullmatch(r"[0-9]{6}", pin) is not None
+
+
 def _hash_pin(pin):
-    if not isinstance(pin, str) or not re.fullmatch(r"[0-9]{6,12}", pin):
-        raise ErrorAcceso("El PIN debe tener entre 6 y 12 dígitos.")
+    if not pin_valido(pin):
+        raise ErrorAcceso("El PIN debe tener exactamente 6 dígitos: ni más ni menos.")
     return generate_password_hash(pin, method=METODO)
 
 
@@ -110,7 +147,7 @@ def _administrador(cur, actor):
     cur.execute("SELECT " + COLUMNAS + " FROM usuarios WHERE nro=%s AND revision=%s",
                 (actor["nro"], actor["revision"]))
     fila = cur.fetchone()
-    if not fila or fila["rol"] != "administrador":
+    if not fila or fila["rol"] != "administrador" or not fila["pin_seis"]:
         raise ErrorAcceso("La sesión ya no permite administrar accesos. Vuelve a ingresar.", 403)
 
 
@@ -119,18 +156,19 @@ def crear(con, actor, usuario, rol, pin):
     try:
         with _cambio(con) as cur:
             _administrador(cur, actor)
-            cur.execute("INSERT INTO usuarios (usuario, clave_hash, rol, revision) VALUES (%s,%s,%s,%s)",
+            cur.execute("INSERT INTO usuarios (usuario, clave_hash, rol, revision, pin_seis) VALUES (%s,%s,%s,%s,1)",
                         (usuario, clave_hash, rol, secrets.token_hex(16)))
             return cur.lastrowid
     except MySQLdb.IntegrityError:
         raise ErrorAcceso("Ese usuario ya existe.", 409)
 
 
-def modificar(con, actor, nro, accion, rol=None, pin=None):
-    if accion not in ("rol", "pin", "eliminar"):
+def modificar(con, actor, nro, accion, rol=None, pin=None, usuario=None):
+    if accion not in ("usuario", "rol", "pin", "eliminar"):
         raise ErrorAcceso("Acción de acceso desconocida.")
     nuevo_rol = _rol(rol) if accion == "rol" else None
     clave_hash = _hash_pin(pin) if accion == "pin" else None
+    nombre = _nombre(usuario) if accion == "usuario" else None
     with _cambio(con) as cur:
         _administrador(cur, actor)
         cur.execute("SELECT " + COLUMNAS + " FROM usuarios WHERE nro=%s", (nro,))
@@ -146,18 +184,25 @@ def modificar(con, actor, nro, accion, rol=None, pin=None):
         if accion == "eliminar":
             cur.execute("DELETE FROM usuarios WHERE nro=%s", (nro,))
         elif accion == "pin":
-            cur.execute("UPDATE usuarios SET clave_hash=%s, revision=%s WHERE nro=%s",
+            cur.execute("UPDATE usuarios SET clave_hash=%s, revision=%s, pin_seis=1 WHERE nro=%s",
                         (clave_hash, secrets.token_hex(16), nro))
-        elif nuevo_rol != fila["rol"]:
+        elif accion == "usuario" and nombre != fila["usuario"]:
+            try:
+                cur.execute("UPDATE usuarios SET usuario=%s, revision=%s WHERE nro=%s",
+                            (nombre, secrets.token_hex(16), nro))
+            except MySQLdb.IntegrityError:
+                raise ErrorAcceso("Ese usuario ya existe.", 409)
+        elif accion == "rol" and nuevo_rol != fila["rol"]:
             cur.execute("UPDATE usuarios SET rol=%s, revision=%s WHERE nro=%s",
                         (nuevo_rol, secrets.token_hex(16), nro))
 
 
-def recuperar(con, usuario, clave_hash):
+def recuperar(con, usuario, pin):
     """Recuperación local con sudo cambiar-clave, aun si se perdieron todos los accesos."""
     if not usuario or len(usuario) > 80:
         raise ErrorAcceso("El usuario debe tener entre 1 y 80 caracteres.")
+    clave_hash = _hash_pin(pin)
     with _cambio(con) as cur:
-        cur.execute("INSERT INTO usuarios (usuario, clave_hash, rol, revision) VALUES (%s,%s,'administrador',%s) "
-                    "ON DUPLICATE KEY UPDATE clave_hash=VALUES(clave_hash), rol='administrador', revision=VALUES(revision)",
+        cur.execute("INSERT INTO usuarios (usuario, clave_hash, rol, revision, pin_seis) VALUES (%s,%s,'administrador',%s,1) "
+                    "ON DUPLICATE KEY UPDATE clave_hash=VALUES(clave_hash), rol='administrador', revision=VALUES(revision), pin_seis=1",
                     (usuario, clave_hash, secrets.token_hex(16)))

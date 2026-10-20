@@ -103,13 +103,13 @@
         <input id="acceso-usuario" name="usuario" minlength="3" maxlength="40" pattern="[A-Za-z0-9_.\-]+" autocomplete="off" autocapitalize="none" spellcheck="false" required></div>
       <div class="campo"><label for="acceso-rol">Rol</label>
         <select id="acceso-rol" name="rol"><option value="operador">Operador</option><option value="administrador">Administrador</option></select></div>
-      <div class="campo"><label for="acceso-pin">PIN (6 a 12 dígitos)</label>
-        <input id="acceso-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{6,12}" minlength="6" maxlength="12" autocomplete="new-password" required></div>
+      <div class="campo"><label for="acceso-pin">PIN (exactamente 6 dígitos)</label>
+        <input id="acceso-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" title="Exactamente 6 números: ni más ni menos" autocomplete="new-password" required></div>
       <div class="campo"><label for="acceso-repetir">Repetir PIN</label>
-        <input id="acceso-repetir" type="password" inputmode="numeric" pattern="[0-9]{6,12}" maxlength="12" autocomplete="new-password" required></div>
+        <input id="acceso-repetir" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" title="Exactamente 6 números: ni más ni menos" autocomplete="new-password" required></div>
       <div class="botones"><button type="submit" class="primario">Agregar usuario</button></div>
     </form>
-    <p class="ayuda">Los PIN no se pueden consultar. Si alguien lo olvida, restablécelo. Tu clave anterior sigue funcionando.</p>
+    <p class="ayuda">Solo se admiten PIN de exactamente 6 números: ni más ni menos. No se pueden consultar; si alguien lo olvida, restablécelo. Puedes cambiar los nombres y usar mayúsculas.</p>
     <p class="resultado" id="res-accesos" role="status"></p>
     <div class="tabla-caja" tabindex="0" aria-label="Usuarios del sistema">
       <table><thead><tr><th>Usuario</th><th>Rol</th><th>Acciones</th></tr></thead>
@@ -118,14 +118,16 @@
     </div>
     <form id="editar-acceso" class="fila" hidden autocomplete="off" aria-labelledby="acceso-editar-titulo">
       <p id="acceso-editar-titulo" class="ayuda"></p>
+      <div class="campo" id="editar-usuario-campo"><label for="editar-usuario">Nuevo nombre de usuario</label>
+        <input id="editar-usuario" minlength="3" maxlength="40" pattern="[A-Za-z0-9_.\-]+" autocomplete="off" autocapitalize="none" spellcheck="false"></div>
       <div class="campo" id="editar-rol-campo"><label for="editar-rol">Nuevo rol</label>
         <select id="editar-rol"><option value="operador">Operador</option><option value="administrador">Administrador</option></select></div>
-      <div class="campo" id="editar-pin-campo"><label for="editar-pin">Nuevo PIN (6 a 12 dígitos)</label>
-        <input id="editar-pin" type="password" inputmode="numeric" pattern="[0-9]{6,12}" minlength="6" maxlength="12" autocomplete="new-password"></div>
+      <div class="campo" id="editar-pin-campo"><label for="editar-pin">Nuevo PIN (exactamente 6 dígitos)</label>
+        <input id="editar-pin" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" title="Exactamente 6 números: ni más ni menos" autocomplete="new-password"></div>
       <div class="campo" id="editar-repetir-campo"><label for="editar-repetir">Repetir PIN</label>
-        <input id="editar-repetir" type="password" inputmode="numeric" pattern="[0-9]{6,12}" maxlength="12" autocomplete="new-password"></div>
+        <input id="editar-repetir" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" title="Exactamente 6 números: ni más ni menos" autocomplete="new-password"></div>
       <div class="botones"><button type="submit" class="primario">Guardar cambio</button><button type="button" id="cancelar-acceso">Cancelar</button></div>
-      <p class="ayuda">Al cambiar el rol o el PIN se cierran las sesiones de ese usuario. No se puede eliminar el último administrador ni tu propio usuario.</p>
+      <p class="ayuda">Al cambiar el nombre, rol o PIN se cierran las sesiones de ese usuario. No se puede eliminar el último administrador ni tu propio usuario.</p>
     </form>
   </section>
 

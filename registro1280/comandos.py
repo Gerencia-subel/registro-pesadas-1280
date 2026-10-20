@@ -331,23 +331,22 @@ def cambiar_clave(argumentos):
     ini = config_web.leer()
     actual = ini.get("usuario", "intradevco")
     usuario = input("Usuario administrador a recuperar [%s]: " % actual).strip() or actual
-    clave = getpass.getpass("Clave nueva: ")
-    if len(clave) < 4:
-        return _salir("La clave debe tener al menos 4 caracteres.")
-    if getpass.getpass("Repetir la clave: ") != clave:
-        return _salir("Las claves no coinciden. No se cambió nada.")
-    from werkzeug.security import generate_password_hash
+    clave = getpass.getpass("PIN nuevo (exactamente 6 dígitos): ")
+    if not accesos.pin_valido(clave):
+        return _salir("El PIN debe tener exactamente 6 dígitos: ni más ni menos.")
+    if getpass.getpass("Repetir el PIN: ") != clave:
+        return _salir("Los PIN no coinciden. No se cambió nada.")
     try:
         con = _con()
         try:
-            accesos.recuperar(con, usuario, generate_password_hash(clave, method=config_web.METODO))
+            accesos.recuperar(con, usuario, clave)
         finally:
             con.close()
     except (ErrorBase, accesos.ErrorAcceso) as e:
         return _salir(str(e))
     config_web.cambiar_clave(usuario, clave)
     subprocess.run(["systemctl", "restart", "registro1280-web"], check=False)
-    print("Listo. Usuario: %s. La web ya pide la clave nueva." % usuario)
+    print("Listo. Usuario: %s. La web ya pide el PIN nuevo." % usuario)
     return 0
 
 

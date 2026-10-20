@@ -113,6 +113,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
   UNIQUE KEY por_usuario (usuario)
 ) ENGINE=InnoDB;
 -- Versiones anteriores: más espacio para listas largas de destinatarios.
+-- Las credenciales anteriores se convierten una sola vez a un PIN de seis dígitos.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pin_seis TINYINT NOT NULL DEFAULT 0;
 ALTER TABLE configuracion MODIFY valor VARCHAR(5000) NOT NULL;
 ALTER TABLE pedidos MODIFY datos VARCHAR(6000) NOT NULL DEFAULT '';
 ALTER TABLE correos MODIFY para TEXT NULL, MODIFY copia TEXT NULL;
