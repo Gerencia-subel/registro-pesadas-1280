@@ -272,6 +272,9 @@ class Web(unittest.TestCase):
                 hoja = ET.fromstring(libro.read("xl/worksheets/sheet1.xml"))
                 ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
                 filas = hoja.findall("s:sheetData/s:row", ns)[1:]
+                tabla = ET.fromstring(libro.read("xl/tables/table1.xml"))
+                self.assertEqual(tabla.get("displayName"), "TablaBalanzacoches")
+                self.assertEqual(tabla.get("ref"), "A1:M%d" % max(2, len(filas) + 1))
                 return [int(f.find("s:c[@r='B%s']/s:v" % f.get("r"), ns).text) for f in filas]
         finally:
             r.close()

@@ -13,6 +13,8 @@ COLUMNAS = ("nro", "ID", "cor", "Producto", "Peso", "Acum", "FechaI", "FechaF", 
 TITULOS = ("N°", "ID", "cor", "Producto", "Peso (kg)", "Acumulado (kg)", "Fecha de inicio",
            "Fecha de fin", "Turno", "Estado", "Guardado", "Actualizado", "Correo")
 NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+NS_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+NOMBRE_TABLA = "TablaBalanzacoches"
 _CONTROLES = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
 
 
@@ -44,17 +46,18 @@ def crear(filas):
     try:
         with ZipFile(archivo, "w", ZIP_DEFLATED) as libro:
             hoja = None
+            filas_por_hoja = []
             numero_hoja, numero_fila = 0, MAX_FILAS
             try:
                 # Siempre se crea al menos una hoja, incluso sin resultados.
                 for fila in _con_encabezado(filas):
                     if numero_fila == MAX_FILAS:
                         if hoja is not None:
-                            hoja.write(('</sheetData><autoFilter ref="A1:M%d"/></worksheet>' % numero_fila).encode())
-                            hoja.close()
+                            _cerrar_hoja(hoja)
+                            filas_por_hoja.append(numero_fila)
                         numero_hoja += 1
                         hoja = libro.open("xl/worksheets/sheet%d.xml" % numero_hoja, "w")
-                        hoja.write(('<worksheet xmlns="%s"><sheetViews><sheetView workbookViewId="0">'
+                        hoja.write(('<worksheet xmlns="%s" xmlns:r="%s"><sheetViews><sheetView workbookViewId="0">'
                                     '<pane ySplit="1" topLeftCell="A2" state="frozen"/>'
                                     '</sheetView></sheetViews><cols><col min="1" max="3" width="12" customWidth="1"/>'
                                     '<col min="4" max="4" width="30" customWidth="1"/>'
@@ -62,17 +65,18 @@ def crear(filas):
                                     '<col min="7" max="8" width="22" customWidth="1"/>'
                                     '<col min="9" max="10" width="10" customWidth="1"/>'
                                     '<col min="11" max="12" width="22" customWidth="1"/>'
-                                    '<col min="13" max="13" width="12" customWidth="1"/></cols><sheetData>' % NS).encode())
+                                    '<col min="13" max="13" width="12" customWidth="1"/></cols><sheetData>' % (NS, NS_REL)).encode())
                         hoja.write(_fila(1, TITULOS, encabezado=True))
                         numero_fila = 1
                     if fila is not None:
                         numero_fila += 1
                         hoja.write(_fila(numero_fila, [fila.get(c) for c in COLUMNAS]))
-                hoja.write(('</sheetData><autoFilter ref="A1:M%d"/></worksheet>' % numero_fila).encode())
+                _cerrar_hoja(hoja)
+                filas_por_hoja.append(numero_fila)
             finally:
                 if hoja is not None:
                     hoja.close()
-            _estructura(libro, numero_hoja)
+            _estructura(libro, filas_por_hoja)
         archivo.seek(0)
         return archivo
     except Exception:
@@ -85,7 +89,13 @@ def _con_encabezado(filas):
     yield from filas
 
 
-def _estructura(libro, hojas):
+def _cerrar_hoja(hoja):
+    hoja.write(b'</sheetData><tableParts count="1"><tablePart r:id="rIdTabla"/></tableParts></worksheet>')
+    hoja.close()
+
+
+def _estructura(libro, filas_por_hoja):
+    hojas = len(filas_por_hoja)
     relaciones = "http://schemas.openxmlformats.org/package/2006/relationships"
     tipo = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
     libro.writestr("_rels/.rels", '<Relationships xmlns="%s"><Relationship Id="rId1" Type="%sofficeDocument" '
@@ -104,7 +114,24 @@ def _estructura(libro, hojas):
                    '<Override PartName="/xl/workbook.xml" ContentType="%ssheet.main+xml"/>'
                    '<Override PartName="/xl/styles.xml" ContentType="%sstyles+xml"/>%s</Types>'
                    % (contenido, contenido, "".join('<Override PartName="/xl/worksheets/sheet%d.xml" '
-                      'ContentType="%sworksheet+xml"/>' % (i, contenido) for i in range(1, hojas + 1))))
+                      'ContentType="%sworksheet+xml"/><Override PartName="/xl/tables/table%d.xml" '
+                      'ContentType="%stable+xml"/>' % (i, contenido, i, contenido) for i in range(1, hojas + 1))))
+    for i, filas in enumerate(filas_por_hoja, 1):
+        # Excel exige nombres únicos para las tablas de un mismo libro.
+        nombre = NOMBRE_TABLA if i == 1 else "%s_%d" % (NOMBRE_TABLA, i)
+        # La tabla vacía reserva una fila para ingresar datos, sin inventar pesadas.
+        rango = "A1:M%d" % max(2, filas)
+        libro.writestr("xl/worksheets/_rels/sheet%d.xml.rels" % i,
+                       '<Relationships xmlns="%s"><Relationship Id="rIdTabla" Type="%stable" '
+                       'Target="../tables/table%d.xml"/></Relationships>' % (relaciones, tipo, i))
+        libro.writestr("xl/tables/table%d.xml" % i,
+                       '<table xmlns="%s" id="%d" name="%s" displayName="%s" ref="%s" totalsRowShown="0">'
+                       '<autoFilter ref="%s"/><tableColumns count="%d">%s</tableColumns>'
+                       '<tableStyleInfo name="TableStyleMedium2" showFirstColumn="0" showLastColumn="0" '
+                       'showRowStripes="1" showColumnStripes="0"/></table>'
+                       % (NS, i, nombre, nombre, rango, rango, len(TITULOS),
+                          "".join('<tableColumn id="%d" name="%s"/>' % (n, escape(titulo, {'"': '&quot;'}))
+                                  for n, titulo in enumerate(TITULOS, 1))))
     libro.writestr("xl/styles.xml", '<styleSheet xmlns="%s">' % NS +
                    '<numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0.00##"/>'
                    '<numFmt numFmtId="165" formatCode="dd/mm/yyyy hh:mm:ss"/></numFmts>'

@@ -14,6 +14,29 @@ N = {"s": excel.NS}
 
 
 class Excel(unittest.TestCase):
+    def test_tabla_estructurada_con_nombre_y_relaciones_validas(self):
+        with excel.crear(iter([{"ID": 1}, {"ID": 2}])) as archivo, ZipFile(archivo) as libro:
+            hoja = ET.fromstring(libro.read("xl/worksheets/sheet1.xml"))
+            parte = hoja.find("s:tableParts/s:tablePart", N)
+            self.assertIsNotNone(parte)
+            relacion = parte.get("{%s}id" % excel.NS_REL)
+            ns_rel = {"r": "http://schemas.openxmlformats.org/package/2006/relationships"}
+            relaciones = ET.fromstring(libro.read("xl/worksheets/_rels/sheet1.xml.rels"))
+            destino = relaciones.find("r:Relationship[@Id='%s']" % relacion, ns_rel)
+            self.assertEqual(destino.get("Type"), excel.NS_REL + "/table")
+            self.assertEqual(destino.get("Target"), "../tables/table1.xml")
+            tabla = ET.fromstring(libro.read("xl/tables/table1.xml"))
+            self.assertEqual(tabla.get("name"), "TablaBalanzacoches")
+            self.assertEqual(tabla.get("displayName"), "TablaBalanzacoches")
+            self.assertEqual(tabla.get("ref"), "A1:M3")
+            self.assertEqual(tabla.find("s:autoFilter", N).get("ref"), "A1:M3")
+            self.assertEqual([c.get("name") for c in tabla.findall("s:tableColumns/s:tableColumn", N)],
+                             list(excel.TITULOS))
+            tipos = ET.fromstring(libro.read("[Content_Types].xml"))
+            tipo = next(t for t in tipos if t.get("PartName") == "/xl/tables/table1.xml")
+            self.assertEqual(tipo.get("ContentType"),
+                             "application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml")
+
     def test_numeros_fechas_y_productos_son_datos_no_formulas(self):
         fecha = datetime(2026, 10, 19, 9, 15, 32)
         fila = dict(nro=1, ID=203, cor=2, Producto='=HYPERLINK("x") & Limón\x00',
@@ -41,6 +64,8 @@ class Excel(unittest.TestCase):
             hoja = ET.fromstring(libro.read("xl/worksheets/sheet1.xml"))
             self.assertEqual(len(hoja.findall(".//s:row", N)), 1)
             self.assertEqual([e.text for e in hoja.findall(".//s:t", N)], list(excel.TITULOS))
+            tabla = ET.fromstring(libro.read("xl/tables/table1.xml"))
+            self.assertEqual((tabla.get("displayName"), tabla.get("ref")), ("TablaBalanzacoches", "A1:M2"))
 
     def test_continua_en_otra_hoja_sin_perder_registros(self):
         with mock.patch.object(excel, "MAX_FILAS", 3), excel.crear({"ID": i} for i in range(5)) as archivo:
@@ -48,12 +73,17 @@ class Excel(unittest.TestCase):
                 hojas = ET.fromstring(libro.read("xl/workbook.xml")).findall("s:sheets/s:sheet", N)
                 self.assertEqual(len(hojas), 3)
                 ids = []
+                nombres = []
                 for i in range(1, 4):
                     hoja = ET.fromstring(libro.read("xl/worksheets/sheet%d.xml" % i))
                     filas = hoja.findall("s:sheetData/s:row", N)
                     self.assertLessEqual(len(filas), 3)
                     ids += [int(f.find("s:c/s:v", N).text) for f in filas[1:]]
+                    tabla = ET.fromstring(libro.read("xl/tables/table%d.xml" % i))
+                    nombres.append(tabla.get("displayName"))
+                    self.assertEqual(tabla.get("ref"), "A1:M%d" % len(filas))
                 self.assertEqual(ids, list(range(5)))
+                self.assertEqual(nombres, ["TablaBalanzacoches", "TablaBalanzacoches_2", "TablaBalanzacoches_3"])
 
     def test_falla_de_lectura_no_deja_archivo_abierto(self):
         def filas():
