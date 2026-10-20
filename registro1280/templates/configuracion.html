@@ -95,6 +95,40 @@
     </section>
   </div>
 
+  <section class="panel ancho-total" id="seccion-accesos" aria-labelledby="t-accesos">
+    <div class="panel-cabeza"><h2 id="t-accesos">Accesos</h2></div>
+    <p class="detalle-panel">El administrador accede a Pesadas y Configuración. El operador accede a toda la página Pesadas, con Excel y correos enviados.</p>
+    <form id="crear-acceso" class="fila" autocomplete="off">
+      <div class="campo"><label for="acceso-usuario">Nuevo usuario</label>
+        <input id="acceso-usuario" name="usuario" minlength="3" maxlength="40" pattern="[A-Za-z0-9_.\-]+" autocomplete="off" autocapitalize="none" spellcheck="false" required></div>
+      <div class="campo"><label for="acceso-rol">Rol</label>
+        <select id="acceso-rol" name="rol"><option value="operador">Operador</option><option value="administrador">Administrador</option></select></div>
+      <div class="campo"><label for="acceso-pin">PIN (6 a 12 dígitos)</label>
+        <input id="acceso-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{6,12}" minlength="6" maxlength="12" autocomplete="new-password" required></div>
+      <div class="campo"><label for="acceso-repetir">Repetir PIN</label>
+        <input id="acceso-repetir" type="password" inputmode="numeric" pattern="[0-9]{6,12}" maxlength="12" autocomplete="new-password" required></div>
+      <div class="botones"><button type="submit" class="primario">Agregar usuario</button></div>
+    </form>
+    <p class="ayuda">Los PIN no se pueden consultar. Si alguien lo olvida, restablécelo. Tu clave anterior sigue funcionando.</p>
+    <p class="resultado" id="res-accesos" role="status"></p>
+    <div class="tabla-caja" tabindex="0" aria-label="Usuarios del sistema">
+      <table><thead><tr><th>Usuario</th><th>Rol</th><th>Acciones</th></tr></thead>
+        <tbody id="usuarios"><tr><td colspan="3" class="vacio">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+    <form id="editar-acceso" class="fila" hidden autocomplete="off" aria-labelledby="acceso-editar-titulo">
+      <p id="acceso-editar-titulo" class="ayuda"></p>
+      <div class="campo" id="editar-rol-campo"><label for="editar-rol">Nuevo rol</label>
+        <select id="editar-rol"><option value="operador">Operador</option><option value="administrador">Administrador</option></select></div>
+      <div class="campo" id="editar-pin-campo"><label for="editar-pin">Nuevo PIN (6 a 12 dígitos)</label>
+        <input id="editar-pin" type="password" inputmode="numeric" pattern="[0-9]{6,12}" minlength="6" maxlength="12" autocomplete="new-password"></div>
+      <div class="campo" id="editar-repetir-campo"><label for="editar-repetir">Repetir PIN</label>
+        <input id="editar-repetir" type="password" inputmode="numeric" pattern="[0-9]{6,12}" maxlength="12" autocomplete="new-password"></div>
+      <div class="botones"><button type="submit" class="primario">Guardar cambio</button><button type="button" id="cancelar-acceso">Cancelar</button></div>
+      <p class="ayuda">Al cambiar el rol o el PIN se cierran las sesiones de ese usuario. No se puede eliminar el último administrador ni tu propio usuario.</p>
+    </form>
+  </section>
+
   <section class="panel ancho-total" aria-labelledby="t-cambios">
     <div class="panel-cabeza"><h2 id="t-cambios">Últimos cambios y acciones</h2></div>
     <div class="tabla-caja">

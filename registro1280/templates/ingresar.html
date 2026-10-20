@@ -14,7 +14,7 @@
   <form method="post" class="tarjeta" autocomplete="on">
     <label for="usuario">Usuario</label>
     <input id="usuario" name="usuario" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
-    <label for="clave">Clave</label>
+    <label for="clave">PIN o clave</label>
     <input id="clave" name="clave" type="password" autocomplete="current-password" required>
     {% if error %}<p class="mensaje error" role="alert">{{ error }}</p>{% endif %}
     <button type="submit" class="primario">Ingresar</button>

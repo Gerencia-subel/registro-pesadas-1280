@@ -1,3 +1,3 @@
 """Registro de pesadas del indicador Rice Lake 1280 en MariaDB (MySQL)."""
 
-VERSION = "1.4.5"
+VERSION = "1.5.0"

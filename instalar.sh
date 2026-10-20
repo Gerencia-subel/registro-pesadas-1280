@@ -103,6 +103,7 @@ CREATE USER IF NOT EXISTS 'registro1280web'@'localhost' IDENTIFIED VIA unix_sock
 GRANT SELECT ON registro1280.* TO 'registro1280web'@'localhost';
 -- La web solo agrega pedidos (cambios de configuración); los hace el servicio del correo.
 GRANT INSERT ON registro1280.pedidos TO 'registro1280web'@'localhost';
+GRANT INSERT, UPDATE, DELETE ON registro1280.usuarios TO 'registro1280web'@'localhost';
 SQL
 if [ -n "$USUARIO_PI" ] && [ "$USUARIO_PI" != "root" ] && [[ "$USUARIO_PI" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then
   mariadb -e "CREATE USER IF NOT EXISTS '$USUARIO_PI'@'localhost' IDENTIFIED VIA unix_socket;

@@ -101,6 +101,17 @@ CREATE TABLE IF NOT EXISTS configuracion (
   valor  VARCHAR(5000) NOT NULL,
   PRIMARY KEY (clave)
 ) ENGINE=InnoDB;
+
+-- Cuentas de la web. El operador consulta Pesadas; el administrador gestiona el sistema.
+CREATE TABLE IF NOT EXISTS usuarios (
+  nro        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  usuario    VARCHAR(80) COLLATE utf8mb4_bin NOT NULL,
+  clave_hash VARCHAR(255) NOT NULL,
+  rol        ENUM('administrador','operador') NOT NULL,
+  revision   CHAR(32) NOT NULL COMMENT 'Invalida sesiones al cambiar el PIN o el rol',
+  PRIMARY KEY (nro),
+  UNIQUE KEY por_usuario (usuario)
+) ENGINE=InnoDB;
 -- Versiones anteriores: más espacio para listas largas de destinatarios.
 ALTER TABLE configuracion MODIFY valor VARCHAR(5000) NOT NULL;
 ALTER TABLE pedidos MODIFY datos VARCHAR(6000) NOT NULL DEFAULT '';

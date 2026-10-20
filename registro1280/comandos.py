@@ -324,18 +324,27 @@ def controlador(argumentos):
 
 # ------------------------------------------------------------------ cambiar-clave
 def cambiar_clave(argumentos):
-    """sudo cambiar-clave: cambia el usuario y la clave de la página web."""
-    from . import config_web
+    """sudo cambiar-clave: recupera una cuenta administradora de la página web."""
+    from . import accesos, config_web
     if os.geteuid() != 0:
         return _salir("Usar con sudo:  sudo cambiar-clave")
     ini = config_web.leer()
     actual = ini.get("usuario", "intradevco")
-    usuario = input("Usuario de la web [%s]: " % actual).strip() or actual
+    usuario = input("Usuario administrador a recuperar [%s]: " % actual).strip() or actual
     clave = getpass.getpass("Clave nueva: ")
     if len(clave) < 4:
         return _salir("La clave debe tener al menos 4 caracteres.")
     if getpass.getpass("Repetir la clave: ") != clave:
         return _salir("Las claves no coinciden. No se cambió nada.")
+    from werkzeug.security import generate_password_hash
+    try:
+        con = _con()
+        try:
+            accesos.recuperar(con, usuario, generate_password_hash(clave, method=config_web.METODO))
+        finally:
+            con.close()
+    except (ErrorBase, accesos.ErrorAcceso) as e:
+        return _salir(str(e))
     config_web.cambiar_clave(usuario, clave)
     subprocess.run(["systemctl", "restart", "registro1280-web"], check=False)
     print("Listo. Usuario: %s. La web ya pide la clave nueva." % usuario)

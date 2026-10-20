@@ -12,7 +12,7 @@ from zipfile import ZipFile
 from werkzeug.security import generate_password_hash
 
 import ayuda
-from registro1280 import basedatos
+from registro1280 import accesos, basedatos
 from registro1280.guardado import guardar
 from registro1280.controlador import Pesada
 from registro1280.web import crear_app
@@ -28,6 +28,7 @@ class Web(unittest.TestCase):
         ayuda.preparar_base()
         cls.sim = Simulador(iniciales=250)
         con = basedatos.conectar()
+        accesos.preparar(con, AJUSTES)
         ayuda.con_simulador(con, cls.sim)
         guardar(con, "manual")
         con.close()

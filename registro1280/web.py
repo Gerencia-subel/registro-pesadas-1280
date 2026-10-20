@@ -1,7 +1,7 @@
 """Página web del registro de pesadas: consulta de pesadas y configuración.
 
-Corre como el usuario de Linux registro1280web, que en la base solo puede leer y agregar
-pedidos: las pesadas no se pueden editar ni borrar desde la web. Los cambios de
+Corre como el usuario de Linux registro1280web, que puede leer, agregar pedidos y administrar
+cuentas de acceso: las pesadas no se pueden editar ni borrar desde la web. Los cambios de
 configuración (correo, bucle, controlador) y "guardar ahora" se piden con un pedido que
 hace el servicio del correo, igual que los comandos de la terminal.
 """
@@ -14,10 +14,10 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-from flask import Flask, jsonify, redirect, render_template, request, send_file, session, url_for
-from werkzeug.security import check_password_hash
+import MySQLdb
+from flask import Flask, g, jsonify, redirect, render_template, request, send_file, session, url_for
 
-from . import VERSION, acciones, basedatos, comunicacion, correo, excel, formato
+from . import VERSION, accesos, acciones, basedatos, comunicacion, correo, excel, formato
 from .basedatos import ErrorBase
 from .horario import leer_fecha, minutos_config
 from .reloj import ahora
@@ -149,20 +149,36 @@ def crear_app(ajustes, conectar=basedatos.conectar):
                 return "funnel:" + reenviado[:60]
         return remoto
 
-    def autorizado():
-        return session.get("usuario") == ajustes["usuario"]
+    def usuario_actual():
+        if not isinstance(session.get("cuenta"), int) or not isinstance(session.get("revision"), str):
+            return None
+        con = conectar()
+        try:
+            return accesos.vigente(con, session["cuenta"], session["revision"])
+        finally:
+            con.close()
 
     @app.before_request
     def proteger():
         if request.endpoint in ("ingresar", "static"):
             return None
-        if autorizado():
+        try:
+            g.cuenta = usuario_actual()
+        except (ErrorBase, MySQLdb.Error):
+            return jsonify({"ok": False, "error": "No se pudo verificar el acceso. Intenta de nuevo."}), 503
+        if g.cuenta:
+            if g.cuenta["rol"] != "administrador" and request.endpoint not in (
+                    "inicio", "salir", "api_resumen", "api_pesadas", "api_excel", "api_correos"):
+                if request.path.startswith("/api/"):
+                    return jsonify({"ok": False, "error": "Solo un administrador puede acceder a esta sección."}), 403
+                return render_template("sin_acceso.html", version=VERSION), 403
             if "csrf" not in session:
                 session["csrf"] = secrets.token_hex(16)
             if request.method == "POST" and not hmac.compare_digest(
                     request.headers.get("X-CSRF-Token", ""), session["csrf"]):
                 return jsonify({"ok": False, "error": "La página está desactualizada. Recargarla."}), 403
             return None
+        session.clear()
         if request.path.startswith("/api/"):
             return jsonify({"ok": False, "error": "La sesión terminó. Volver a ingresar."}), 401
         return redirect(url_for("ingresar"))
@@ -185,18 +201,27 @@ def crear_app(ajustes, conectar=basedatos.conectar):
             clave = request.form.get("clave") or ""
             if intentos.bloqueado(origen):
                 error = "Demasiados intentos. Esperar 5 minutos y volver a probar."
-            elif (hmac.compare_digest(usuario.encode("utf-8"), ajustes["usuario"].encode("utf-8"))
-                  and check_password_hash(ajustes["clave_hash"], clave)):
-                intentos.exito(origen)
-                session.clear()
-                session.permanent = True
-                session["usuario"] = usuario
-                session["csrf"] = secrets.token_hex(16)
-                return redirect(url_for("inicio"))
             else:
-                intentos.fallo(origen)
-                error = ("Demasiados intentos. Esperar 5 minutos y volver a probar."
-                         if intentos.bloqueado(origen) else "Usuario o clave incorrectos.")
+                try:
+                    con = conectar()
+                    try:
+                        cuenta = accesos.autenticar(con, usuario, clave) if len(usuario) <= 80 and len(clave) <= 1024 else None
+                    finally:
+                        con.close()
+                except (ErrorBase, MySQLdb.Error):
+                    return render_template("ingresar.html", error="No se pudo verificar el acceso. Intenta de nuevo.", version=VERSION), 503
+                if cuenta:
+                    intentos.exito(origen)
+                    session.clear()
+                    session.permanent = True
+                    session["cuenta"] = cuenta["nro"]
+                    session["revision"] = cuenta["revision"]
+                    session["csrf"] = secrets.token_hex(16)
+                    return redirect(url_for("inicio"))
+                else:
+                    intentos.fallo(origen)
+                    error = ("Demasiados intentos. Esperar 5 minutos y volver a probar."
+                             if intentos.bloqueado(origen) else "Usuario o clave incorrectos.")
         return render_template("ingresar.html", error=error, version=VERSION), (401 if error else 200)
 
     @app.get("/salir")
@@ -206,12 +231,12 @@ def crear_app(ajustes, conectar=basedatos.conectar):
 
     @app.get("/")
     def inicio():
-        return render_template("panel.html", vista="pesadas", usuario=session.get("usuario"), version=VERSION,
+        return render_template("panel.html", vista="pesadas", usuario=g.cuenta["usuario"], administrador=g.cuenta["rol"] == "administrador", version=VERSION,
                                tamanos=TAMANOS, csrf=session.get("csrf", ""))
 
     @app.get("/configuracion")
     def configuracion():
-        return render_template("panel.html", vista="configuracion", usuario=session.get("usuario"), version=VERSION,
+        return render_template("panel.html", vista="configuracion", usuario=g.cuenta["usuario"], administrador=True, version=VERSION,
                                tamanos=TAMANOS, csrf=session.get("csrf", ""))
 
     def con_base(funcion):
@@ -223,6 +248,10 @@ def crear_app(ajustes, conectar=basedatos.conectar):
             return funcion(con)
         except ErrorBase as e:
             return jsonify({"ok": False, "error": str(e)}), 503
+        except accesos.ErrorAcceso as e:
+            return jsonify({"ok": False, "error": str(e)}), e.estado
+        except MySQLdb.Error:
+            return jsonify({"ok": False, "error": "No se pudo consultar o guardar en la base. Intenta de nuevo."}), 503
         finally:
             try:
                 con.close()
@@ -408,6 +437,36 @@ def crear_app(ajustes, conectar=basedatos.conectar):
                             "total": cantidad, "total_texto": formato.numero(cantidad),
                             "pagina": actual, "paginas": max(1, (cantidad + por_pagina - 1) // por_pagina),
                             "por_pagina": por_pagina})
+        return con_base(hacer)
+
+    @app.get("/api/accesos")
+    def api_accesos():
+        return con_base(lambda con: jsonify({"ok": True, "usuarios": accesos.listar(con), "actual": g.cuenta["nro"]}))
+
+    @app.post("/api/accesos")
+    def api_crear_acceso():
+        cuerpo = request.get_json(silent=True)
+        if not isinstance(cuerpo, dict):
+            return jsonify({"ok": False, "error": "Datos de usuario no válidos."}), 400
+
+        def hacer(con):
+            nro = accesos.crear(con, g.cuenta, cuerpo.get("usuario"), cuerpo.get("rol"), cuerpo.get("pin"))
+            return jsonify({"ok": True, "nro": nro})
+        return con_base(hacer)
+
+    @app.post("/api/accesos/<int:nro>")
+    def api_modificar_acceso(nro):
+        cuerpo = request.get_json(silent=True)
+        if not isinstance(cuerpo, dict):
+            return jsonify({"ok": False, "error": "Datos de usuario no válidos."}), 400
+
+        def hacer(con):
+            accesos.modificar(con, g.cuenta, nro, cuerpo.get("accion"), cuerpo.get("rol"), cuerpo.get("pin"))
+            propia_sesion = nro == g.cuenta["nro"] and (cuerpo.get("accion") == "pin" or
+                           (cuerpo.get("accion") == "rol" and cuerpo.get("rol") != g.cuenta["rol"]))
+            if propia_sesion:
+                session.clear()
+            return jsonify({"ok": True, "volver_ingresar": propia_sesion})
         return con_base(hacer)
 
     return app

@@ -30,7 +30,7 @@ def main(argv=None):
         print("  comunicacion 5          revisar con ping cada 5 segundos si el controlador responde")
         print("  comunicacion detener    desactivar esa revisión; comunicacion: ver el estado")
         print("  controlador [IP PUERTO] ver o cambiar la IP del controlador; controlador probar")
-        print("  sudo cambiar-clave      cambiar el usuario y la clave de la web")
+        print("  sudo cambiar-clave      recuperar el acceso de un administrador de la web")
         print("  sudo vaciar-base        borrar todas las pesadas (después de probar con el simulador)")
         return 0
     comando, argumentos = argv[0], argv[1:]
@@ -45,8 +45,13 @@ def main(argv=None):
         servir()
         return 0
     if comando == "preparar-web":   # lo usa instalar.sh
-        from . import config_web
+        from . import accesos, basedatos, config_web
         creado = config_web.preparar(int(argumentos[0]) if argumentos else 8081)
+        con = basedatos.conectar()
+        try:
+            accesos.preparar(con, config_web.leer())
+        finally:
+            con.close()
         print("Configuración de la web %s." % ("creada (usuario intradevco)" if creado else "conservada"))
         return 0
     from .comandos import COMANDOS

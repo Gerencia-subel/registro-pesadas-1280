@@ -3,7 +3,7 @@
 La conexión es por el socket local con autenticación unix_socket: cada usuario de
 Linux entra con su propio nombre y sin contraseña. Permisos:
   registro1280     (el bucle)          leer, agregar y actualizar
-  registro1280web  (la página web)     solo leer
+  registro1280web  (la página web)     leer, agregar pedidos y administrar usuarios web
   usuario de la Pi (los comandos)      leer, agregar y actualizar
 Nadie tiene permiso para borrar pesadas.
 """

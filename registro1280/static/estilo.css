@@ -142,7 +142,8 @@ main.config { padding-top: 24px; }
 .resultado.error { padding: 10px 12px; border-radius: 6px; background: var(--error-fondo); color: var(--error); }
 .panel .tabla-caja { margin-top: 10px; max-height: 50vh; }
 
-.sesion { display: flex; gap: 14px; align-items: center; color: var(--suave); white-space: nowrap; }
+.sesion { display: flex; gap: 14px; align-items: center; color: var(--suave); white-space: nowrap; max-width: 100%; }
+.sesion span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sesion a { font-weight: 600; color: var(--tinta); }
 
 /* ---------------------------------------------------------------- pantalla */

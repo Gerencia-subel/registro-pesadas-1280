@@ -15,7 +15,7 @@
     <p class="detalle" id="bucle-detalle"></p>
   </div>
   <div class="lectura">
-    <h2><a class="enlace-config" href="{{ url_for('configuracion') }}" data-vista="configuracion">Envío por correo</a></h2>
+    <h2>{% if administrador %}<a class="enlace-config" href="{{ url_for('configuracion') }}" data-vista="configuracion">Envío por correo</a>{% else %}Envío por correo{% endif %}</h2>
     <p class="valor" id="correo">–</p>
     <p class="detalle" id="correo-detalle"></p>
   </div>

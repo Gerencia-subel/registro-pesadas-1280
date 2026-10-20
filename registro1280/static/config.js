@@ -173,7 +173,7 @@ async function enviar(tipo, cuerpo) {
   caja.className = "resultado espera";
   texto(caja, tipo === "guardar" || tipo === "correo_probar" || tipo === "correo" ? "Procesando… (puede tardar hasta un minuto)" : "Procesando…");
   ocupado = true;
-  document.querySelectorAll("main.config button").forEach((b) => { b.disabled = true; });
+  document.querySelectorAll("main.config button").forEach((b) => { if (!b.closest("#seccion-accesos")) b.disabled = true; });
   try {
     const r = await pedir("/api/pedidos", {
       method: "POST",
@@ -198,7 +198,7 @@ async function enviar(tipo, cuerpo) {
     texto(caja, "No hubo respuesta del servicio del correo. Revisar en la Pi: systemctl status registro1280-correo");
   } finally {
     ocupado = false;
-    document.querySelectorAll("main.config button").forEach((b) => { b.disabled = false; });
+    document.querySelectorAll("main.config button").forEach((b) => { if (!b.closest("#seccion-accesos")) b.disabled = false; });
     cargar();
     cargarComunicacion();
   }

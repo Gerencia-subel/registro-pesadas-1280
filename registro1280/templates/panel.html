@@ -16,21 +16,22 @@
   </div>
   <nav class="menu" aria-label="Secciones">
     <a href="{{ url_for('inicio') }}" data-vista="pesadas"{% if vista == 'pesadas' %} aria-current="page"{% endif %}>Pesadas</a>
-    <a href="{{ url_for('configuracion') }}" data-vista="configuracion"{% if vista == 'configuracion' %} aria-current="page"{% endif %}>Configuración</a>
+    {% if administrador %}<a href="{{ url_for('configuracion') }}" data-vista="configuracion"{% if vista == 'configuracion' %} aria-current="page"{% endif %}>Configuración</a>{% endif %}
   </nav>
   <div class="sesion">
-    <span>{{ usuario }}</span>
+    <span title="{{ usuario }}">{{ usuario }}</span>
     <a href="{{ url_for('salir') }}">Salir</a>
   </div>
 </header>
 <div id="vista-pesadas"{% if vista != 'pesadas' %} hidden{% endif %}>
   {% include 'inicio.html' %}
 </div>
-<div id="vista-configuracion"{% if vista != 'configuracion' %} hidden{% endif %}>
+{% if administrador %}<div id="vista-configuracion"{% if vista != 'configuracion' %} hidden{% endif %}>
   {% include 'configuracion.html' %}
-</div>
+</div>{% endif %}
 <script src="{{ url_for('static', filename='navegacion.js') }}"></script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
-<script src="{{ url_for('static', filename='config.js') }}"></script>
+{% if administrador %}<script src="{{ url_for('static', filename='config.js') }}"></script>
+<script src="{{ url_for('static', filename='accesos.js') }}"></script>{% endif %}
 </body>
 </html>

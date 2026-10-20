@@ -59,7 +59,8 @@ def preparar_base():
             raise unittest.SkipTest("Sin acceso a MariaDB (usar sudo): %s" % r.stderr.decode()[:200])
         _preparada = True
         atexit.register(lambda: _mariadb("DROP DATABASE IF EXISTS %s;" % BASE))
-    r = _mariadb("USE %s; TRUNCATE pesadas; TRUNCATE descargas; TRUNCATE rechazadas; TRUNCATE correos; TRUNCATE pedidos; "
+    r = _mariadb("USE %s; TRUNCATE pesadas; TRUNCATE descargas; TRUNCATE rechazadas; TRUNCATE correos; TRUNCATE pedidos; TRUNCATE usuarios; "
+                 "DELETE FROM configuracion WHERE clave='accesos_migrados'; "
                  "UPDATE configuracion SET valor='0' WHERE clave IN ('bucle_activo','correo_activo'); "
                  "UPDATE configuracion SET valor='1' WHERE clave='comunicacion_activo'; "
                  "UPDATE configuracion SET valor='5' WHERE clave='comunicacion_segundos'; "

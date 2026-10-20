@@ -6,6 +6,9 @@
     configuracion: { ruta: "/configuracion", titulo: "Configuración – Registro de pesadas" },
   };
   const posiciones = { pesadas: 0, configuracion: 0 };
+  for (const nombre of Object.keys(vistas)) {
+    if (!document.getElementById("vista-" + nombre)) delete vistas[nombre];
+  }
   if ("scrollRestoration" in history) history.scrollRestoration = "manual";
 
   function mostrar(vista, guardarHistoria) {
